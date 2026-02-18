@@ -1,0 +1,66 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "${COOLIFY_CONTAINER_NAME:-navy-backend}:${COMMIT_SHA:-latest}"
+    restart: unless-stopped
+    expose:
+      - "3002"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - navy-network
+      - coolify
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.navy-gzip.compress=true
+      - traefik.http.middlewares.navy-redirect-backend-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.navy-redirect-backend-https.redirectscheme.permanent=true
+      - traefik.http.routers.navy-backend-http.entryPoints=http
+      - traefik.http.routers.navy-backend-http.rule=Host(`api.navy.atcsol.us`)
+      - traefik.http.routers.navy-backend-http.middlewares=navy-redirect-backend-https
+      - traefik.http.routers.navy-backend-https.entryPoints=https
+      - traefik.http.routers.navy-backend-https.rule=Host(`api.navy.atcsol.us`)
+      - traefik.http.routers.navy-backend-https.tls=true
+      - traefik.http.routers.navy-backend-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.navy-backend-https.middlewares=navy-gzip
+      - traefik.http.routers.navy-backend-https.service=navy-backend
+      - traefik.http.services.navy-backend.loadbalancer.server.port=3002
+
+  redis:
+    image: redis:7-alpine
+    container_name: navy-redis-prod
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    networks:
+      - navy-network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  navy-network:
+    driver: bridge
+  coolify:
+    external: true

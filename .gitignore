@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+/generated/prisma
+.DS_Store
+*.pem
+npm-debug.log*
+scripts/
+test-parsing.ts
+neco-template-request.json

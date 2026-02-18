@@ -1,0 +1,591 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USERS
+// ============================================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  passwordHash  String?  @map("password_hash") // null se usar apenas OAuth
+  refreshToken  String?  @map("refresh_token") @db.Text // Token para renovar access_token
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  gmailAccounts          GmailAccount[]
+  parsingTemplates       ParsingTemplate[]
+  opportunities          Opportunity[]
+  opportunityFingerprints OpportunityFingerprint[]
+  userPreferences        UserPreferences?
+  scrapingDomainConfigs  ScrapingDomainConfig[]
+  scrapingSettings       ScrapingSettings?
+  emailSyncSettings      EmailSyncSettings?
+  userRoles              UserRole[]
+  userPermissions        UserPermission[]
+  alerts                 OpportunityAlert[]
+  suppliers              Supplier[]
+  rfqs                   Rfq[]
+  rfqEmailTemplates      RfqEmailTemplate[]
+
+  @@map("users")
+}
+
+// ============================================================================
+// GMAIL ACCOUNTS
+// ============================================================================
+
+model GmailAccount {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  email        String
+  accessToken  String    @map("access_token") @db.Text // criptografado
+  refreshToken String    @map("refresh_token") @db.Text // criptografado
+  tokenExpiry  DateTime? @map("token_expiry")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastSync     DateTime? @map("last_sync")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunities    Opportunity[]
+  processingLogs   ProcessingLog[]
+  rfqs             Rfq[]
+
+  @@unique([userId, email])
+  @@index([userId, isActive], name: "idx_gmail_accounts_user_active")
+  @@map("gmail_accounts")
+}
+
+// ============================================================================
+// PARSING TEMPLATES
+// ============================================================================
+
+model ParsingTemplate {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  name             String
+  description      String?
+  senderEmail      String   @map("sender_email")
+  subjectFilter    String?  @map("subject_filter")
+  emailQuery       String?  @map("email_query") // query de busca Gmail (ex: from:neco@us.navy.mil)
+  isActive         Boolean  @default(true) @map("is_active")
+  extractionConfig Json     @map("extraction_config") // regras de parsing
+  outputSchema     Json     @map("output_schema") // schema dos campos
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunities        Opportunity[]
+  webScrapingConfig    WebScrapingConfig?
+  processingLogs       ProcessingLog[]
+
+  @@index([userId, isActive], name: "idx_templates_user_active")
+  @@index([senderEmail], name: "idx_templates_sender")
+  @@map("parsing_templates")
+}
+
+// ============================================================================
+// OPPORTUNITIES (Tabela Principal)
+// ============================================================================
+
+model Opportunity {
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  templateId         String    @map("template_id")
+  gmailAccountId     String    @map("gmail_account_id")
+
+  // Identificação do Email
+  emailMessageId     String    @map("email_message_id")
+  emailThreadId      String?   @map("email_thread_id")
+  emailDate          DateTime  @map("email_date")
+  fingerprint        String    // SHA256 hash (prevenção de duplicatas)
+
+  // Campos Extraídos do Email (Denormalizados para busca/filtro)
+  solicitationNumber String?   @map("solicitation_number") // ID/SOLICITATION NUMBER
+  site               String?   // SITE (NECO, SAM, NAVY, DIBBS, etc)
+  sourceUrl          String?   @map("source_url") @db.Text // PROJECT / ANEXOS - LINKS (URL do edital)
+  partNumber         String?   @map("part_number") // PART NUMBER
+  manufacturer       String?   // MFR / FABRICANTE
+  description        String?   @db.Text // DESCRIPTION
+  nsn                String?   // National Stock Number
+  condition          String?   // CONDITION (OH, New, etc)
+  unit               String?   // UNIT (EA, etc)
+  quantity           Int?      // QTY
+
+  // Datas
+  closingDate        DateTime? @map("closing_date") // CLOSING DATE (crítico!)
+  deliveryDate       DateTime? @map("delivery_date") // DELIVERY DATE
+
+  // Financeiro (Campos Manuais + Calculados)
+  maxPrice           Decimal?  @map("max_price") @db.Decimal(12, 2) // PREQMAX Valor Maximo
+  purchasePrice      Decimal?  @map("purchase_price") @db.Decimal(12, 2) // Valor Compra - PO Supply - ATCSOL
+  profitMargin       Decimal?  @map("profit_margin") @db.Decimal(5, 2) // Margem Profit % (default 30%)
+  offeredPrice       Decimal?  @map("offered_price") @db.Decimal(12, 2) // POFFERED Valor Ofertado (CALCULADO)
+  profitAmount       Decimal?  @map("profit_amount") @db.Decimal(12, 2) // Margem Diff ATC (CALCULADO)
+  wonPrice           Decimal?  @map("won_price") @db.Decimal(12, 2) // Valor que Ganhou
+
+  // Status e Controle (Workflow)
+  status             String    @default("nao_analisada")
+  // Valores: nao_analisada, analisada, em_cotacao, lancada_bid,
+  //          vencedora_bid, nao_vencedora, cancelada, descartada
+
+  // Fase da cotação (quando status = "em_cotacao")
+  quotationPhase     String?   @map("quotation_phase")
+  // Valores: enviada, recebida, em_negociacao, finalizada
+
+  // Campos de compra (quando status = "vencedora_bid")
+  purchaseStatus     String?   @map("purchase_status")
+  // Valores: pendente, comprada, entregue
+  supplierName       String?   @map("supplier_name")
+  supplierContact    String?   @map("supplier_contact")
+  purchaseOrderNo    String?   @map("purchase_order_no")
+  purchaseDate       DateTime? @map("purchase_date")
+  expectedDelivery   DateTime? @map("expected_delivery")
+  actualDelivery     DateTime? @map("actual_delivery")
+  deliveryOnTime     Boolean?  @map("delivery_on_time")
+
+  // Dados do BID
+  bidSubmittedAt     DateTime? @map("bid_submitted_at")
+  bidPrice           Decimal?  @map("bid_price") @db.Decimal(12, 2)
+  bidResultAt        DateTime? @map("bid_result_at")
+  bidNotes           String?   @map("bid_notes") @db.Text
+
+  // Cancelamento
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancellationSource String?   @map("cancellation_source") // "email_auto" ou "manual"
+
+  // Histórico de transições de status
+  statusHistory      Json?     @map("status_history") // Array de {from, to, at, by}
+
+  // Controles gerais
+  daysUntilClosing   Int?      @map("days_until_closing") // calculado
+  urgencyLevel       String?   @map("urgency_level") // critical, warning, normal
+  isViewed           Boolean   @default(false) @map("is_viewed")
+  viewedAt           DateTime? @map("viewed_at")
+  notes              String?   @db.Text // OBS (campo importante!)
+
+  // Dados Brutos (JSON)
+  extractedData      Json      @map("extracted_data") // Todos dados extraídos do email
+
+  // Web Scraping
+  scrapedData        Json?     @map("scraped_data") // Dados do web scraping
+  rawHtml            String?   @map("raw_html") @db.LongText // HTML bruto da página scrapeada
+  scrapedAt          DateTime? @map("scraped_at")
+  scrapingStatus     String?   @map("scraping_status") // pending, success, failed, auth_required
+  scrapingError      String?   @map("scraping_error") @db.Text
+
+  // Parent-Child (multi-line items)
+  parentOpportunityId String?   @map("parent_opportunity_id")
+  childrenCount       Int       @default(0) @map("children_count")
+
+  // Soft Delete
+  deletedAt          DateTime? @map("deleted_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template        ParsingTemplate  @relation(fields: [templateId], references: [id])
+  gmailAccount    GmailAccount     @relation(fields: [gmailAccountId], references: [id])
+  parent          Opportunity?     @relation("ParentChild", fields: [parentOpportunityId], references: [id], onDelete: Cascade)
+  children        Opportunity[]    @relation("ParentChild")
+  fingerprints    OpportunityFingerprint[]
+  alerts          OpportunityAlert[]
+  rfqs            Rfq[]
+
+  @@unique([userId, emailMessageId, fingerprint])
+  @@index([userId, closingDate, deletedAt], name: "idx_opportunities_user_closing")
+  @@index([userId, status, deletedAt], name: "idx_opportunities_user_status")
+  @@index([userId, fingerprint], name: "idx_opportunities_fingerprint")
+  @@index([emailMessageId], name: "idx_opportunities_email_id")
+  @@index([solicitationNumber], name: "idx_opportunities_solicitation")
+  @@index([site], name: "idx_opportunities_site")
+  @@index([nsn], name: "idx_opportunities_nsn")
+  @@index([scrapingStatus], name: "idx_opportunities_scraping")
+  @@index([parentOpportunityId], name: "idx_opportunities_parent")
+  @@map("opportunities")
+}
+
+// ============================================================================
+// OPPORTUNITY FINGERPRINTS (CRÍTICA - Prevenção de Duplicatas)
+// ============================================================================
+
+model OpportunityFingerprint {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  fingerprint    String    // SHA256 hash
+  opportunityId  String?   @map("opportunity_id") // nullable
+  action         String?   // hidden, deleted, not_interested
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, fingerprint])
+  @@index([userId], name: "idx_fingerprints_user")
+  @@index([userId, fingerprint], name: "idx_fingerprints_lookup")
+  @@map("opportunity_fingerprints")
+}
+
+// ============================================================================
+// WEB SCRAPING CONFIGS
+// ============================================================================
+
+model WebScrapingConfig {
+  id              String   @id @default(uuid())
+  templateId      String   @unique @map("template_id")
+  isEnabled       Boolean  @default(false) @map("is_enabled")
+  urlField        String   @map("url_field") // qual campo contém a URL
+  extractionRules Json     @map("extraction_rules")
+  timeoutSeconds  Int      @default(30) @map("timeout_seconds")
+  retryAttempts   Int      @default(3) @map("retry_attempts")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  template ParsingTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("web_scraping_configs")
+}
+
+// ============================================================================
+// SCRAPING DOMAIN CONFIGS (Gerenciamento global de domínios)
+// ============================================================================
+
+model ScrapingDomainConfig {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  domain          String   // ex: "neco.navy.mil"
+  enabled         Boolean  @default(true)
+  requiresAuth    Boolean  @default(false) @map("requires_auth")
+  reason          String?  // motivo de estar desabilitado
+  timeoutMs       Int      @default(30000) @map("timeout_ms")
+  customHeaders   Json?    @map("custom_headers")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, domain])
+  @@index([userId], name: "idx_domain_configs_user")
+  @@map("scraping_domain_configs")
+}
+
+// ============================================================================
+// PROCESSING LOGS
+// ============================================================================
+
+model ProcessingLog {
+  id                   String    @id @default(uuid())
+  gmailAccountId       String?   @map("gmail_account_id")
+  templateId           String?   @map("template_id")
+  status               String    // success, error, partial
+  emailsProcessed      Int       @default(0) @map("emails_processed")
+  emailsFailed         Int       @default(0) @map("emails_failed")
+  opportunitiesCreated Int       @default(0) @map("opportunities_created")
+  duplicatesSkipped    Int       @default(0) @map("duplicates_skipped")
+  errorDetails         Json?     @map("error_details")
+  startedAt            DateTime  @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+
+  // Relations
+  gmailAccount GmailAccount?    @relation(fields: [gmailAccountId], references: [id], onDelete: SetNull)
+  template     ParsingTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([gmailAccountId, startedAt], name: "idx_logs_account")
+  @@map("processing_logs")
+}
+
+// ============================================================================
+// USER PREFERENCES
+// ============================================================================
+
+model UserPreferences {
+  id                   String   @id @default(uuid())
+  userId               String   @unique @map("user_id")
+  visibleColumns       Json     @default("[]") @map("visible_columns")
+  rowsPerPage          Int      @default(50) @map("rows_per_page")
+  defaultFilters       Json?    @map("default_filters")
+  syncFrequency        Int      @default(60) @map("sync_frequency") // minutos
+  notificationsEnabled Boolean  @default(true) @map("notifications_enabled")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// ============================================================================
+// RBAC - ROLES & PERMISSIONS
+// ============================================================================
+
+model Permission {
+  id        String   @id @default(uuid())
+  name      String   @unique // ex: "opportunities.view", "users.delete"
+  guardName String   @default("api") @map("guard_name")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  name      String   @unique // ex: "super-admin", "admin", "manager"
+  guardName String   @default("api") @map("guard_name")
+  isSystem  Boolean  @default(false) @map("is_system") // roles base não podem ser deletados
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  // Relations
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model UserPermission {
+  userId       String @map("user_id")
+  permissionId String @map("permission_id")
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@map("user_permissions")
+}
+
+// ============================================================================
+// OPPORTUNITY ALERTS (Alertas persistidos no banco)
+// ============================================================================
+
+model OpportunityAlert {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  opportunityId   String    @map("opportunity_id")
+  type            String    // cancellation, status_change, amendment, deadline_warning
+  title           String
+  message         String    @db.Text
+  metadata        Json?     // Dados extras: {fromStatus, toStatus, changedBy, ...}
+  isRead          Boolean   @default(false) @map("is_read")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead], name: "idx_alerts_user_read")
+  @@index([userId, createdAt], name: "idx_alerts_user_date")
+  @@index([opportunityId], name: "idx_alerts_opportunity")
+  @@map("opportunity_alerts")
+}
+
+// ============================================================================
+// SUPPLIERS (Fornecedores)
+// ============================================================================
+
+model Supplier {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  email       String
+  phone       String?
+  contactName String?  @map("contact_name")
+  street      String?
+  city        String?
+  state       String?
+  zipCode     String?  @map("zip_code")
+  country     String   @default("US")
+  tags        Json     @default("[]") // array de strings
+  notes       String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rfqItems RfqItem[]
+
+  @@unique([userId, email])
+  @@index([userId, isActive], name: "idx_suppliers_user_active")
+  @@index([userId, name], name: "idx_suppliers_user_name")
+  @@map("suppliers")
+}
+
+// ============================================================================
+// RFQ (Request for Quote - Cotações)
+// ============================================================================
+
+model Rfq {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  gmailAccountId  String    @map("gmail_account_id")
+  opportunityId   String?   @map("opportunity_id") // nullable = cotação avulsa
+  title           String
+  referenceNumber String?   @map("reference_number") // auto-gerado: "RFQ-2026-0001"
+  emailSubject    String    @map("email_subject")
+  emailBody       String    @map("email_body") @db.Text // HTML
+  opportunityData Json?     @map("opportunity_data") // snapshot dos dados da oportunidade
+  status          String    @default("rascunho")
+  // Valores: rascunho, enviada, parcialmente_respondida, respondida, finalizada, cancelada
+  sentAt          DateTime? @map("sent_at")
+  deadline        DateTime?
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gmailAccount GmailAccount  @relation(fields: [gmailAccountId], references: [id])
+  opportunity  Opportunity?  @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  items        RfqItem[]
+
+  @@index([userId, status], name: "idx_rfqs_user_status")
+  @@index([userId, createdAt], name: "idx_rfqs_user_created")
+  @@index([opportunityId], name: "idx_rfqs_opportunity")
+  @@map("rfqs")
+}
+
+// ============================================================================
+// RFQ ITEMS (Um por fornecedor na cotação)
+// ============================================================================
+
+model RfqItem {
+  id               String    @id @default(uuid())
+  rfqId            String    @map("rfq_id")
+  supplierId       String    @map("supplier_id")
+  emailMessageId   String?   @map("email_message_id")
+  emailThreadId    String?   @map("email_thread_id")
+  sentAt           DateTime? @map("sent_at")
+  status           String    @default("pendente")
+  // Valores: pendente, enviado, resposta_recebida, cotado, sem_resposta, erro_envio
+
+  // Resposta (preenchimento manual)
+  quotedPrice        Decimal?  @map("quoted_price") @db.Decimal(12, 2)
+  quotedDeliveryDays Int?      @map("quoted_delivery_days")
+  quotedCondition    String?   @map("quoted_condition")
+  quotedNotes        String?   @map("quoted_notes") @db.Text
+  respondedAt        DateTime? @map("responded_at")
+  quotedAt           DateTime? @map("quoted_at")
+  isSelected         Boolean   @default(false) @map("is_selected")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  rfq      Rfq      @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([rfqId, supplierId])
+  @@index([emailThreadId], name: "idx_rfq_items_thread")
+  @@map("rfq_items")
+}
+
+// ============================================================================
+// RFQ EMAIL TEMPLATES (Templates de email para cotação)
+// ============================================================================
+
+model RfqEmailTemplate {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  subject   String
+  body      String   @db.Text // HTML com placeholders
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_rfq_email_templates_user")
+  @@map("rfq_email_templates")
+}
+
+// ============================================================================
+// SCRAPING SETTINGS (Configurações globais de scraping por usuário)
+// ============================================================================
+
+// ============================================================================
+// EMAIL SYNC SETTINGS (Configurações de auto-sync por usuário)
+// ============================================================================
+
+model EmailSyncSettings {
+  id                  String    @id @default(uuid())
+  userId              String    @unique @map("user_id")
+  autoSyncEnabled     Boolean   @default(false) @map("auto_sync_enabled")
+  syncIntervalMinutes Int       @default(30) @map("sync_interval_minutes")
+  lastAutoSync        DateTime? @map("last_auto_sync")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_sync_settings")
+}
+
+model ScrapingSettings {
+  id              String   @id @default(uuid())
+  userId          String   @unique @map("user_id")
+  minDelayMs      Int      @default(3000) @map("min_delay_ms")
+  maxDelayMs      Int      @default(7000) @map("max_delay_ms")
+  globalTimeoutMs Int      @default(30000) @map("global_timeout_ms")
+  maxRetries      Int      @default(3) @map("max_retries")
+  retryDelayMs    Int      @default(2000) @map("retry_delay_ms")
+  autoScrapeOnSync Boolean @default(false) @map("auto_scrape_on_sync")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("scraping_settings")
+}
