@@ -512,19 +512,23 @@ export class ScrapingService {
     const first = neco.lineItems[0];
     const enrichment: Record<string, unknown> = {};
 
-    // Quantity e Unit (scraping é a única fonte confiável)
-    if (first.quantity) {
-      enrichment.quantity = first.quantity;
-      if (first.unit) enrichment.unit = first.unit;
-    } else if (first.subLineItems?.length) {
-      // Line item principal sem quantity — somar dos sub-line items
-      const totalQty = first.subLineItems.reduce((sum, sub) => sum + (sub.quantity || 0), 0);
-      if (totalQty > 0) {
-        enrichment.quantity = totalQty;
-        // Usar unit do primeiro sub-line item que tiver
-        const firstUnit = first.subLineItems.find(s => s.unit);
-        if (firstUnit?.unit) enrichment.unit = firstUnit.unit;
+    // Quantity e Unit — somar de TODOS os line items e sub-line items
+    let foundQty = 0;
+    let foundUnit: string | undefined;
+    for (const li of neco.lineItems) {
+      if (li.quantity) {
+        foundQty += li.quantity;
+        if (!foundUnit && li.unit) foundUnit = li.unit;
+      } else if (li.subLineItems?.length) {
+        for (const sub of li.subLineItems) {
+          foundQty += sub.quantity || 0;
+          if (!foundUnit && sub.unit) foundUnit = sub.unit;
+        }
       }
+    }
+    if (foundQty > 0) {
+      enrichment.quantity = foundQty;
+      if (foundUnit) enrichment.unit = foundUnit;
     }
 
     // Part Number e Condition - só se não for garbage
