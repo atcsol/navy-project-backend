@@ -170,6 +170,29 @@ async function main() {
   }
 
   // =========================================================================
+  // 1b. Criar/atualizar usuários adicionais
+  // =========================================================================
+  const additionalUsers = [
+    { email: 'bruno@atcsol.us', name: 'Bruno', password: 'Atc$2026!Br' },
+    { email: 'marcos@atcsol.us', name: 'Marcos', password: 'Atc$2026!Mr' },
+  ];
+
+  for (const u of additionalUsers) {
+    let existingUser = await prisma.user.findUnique({
+      where: { email: u.email },
+    });
+    if (!existingUser) {
+      const hash = await bcrypt.hash(u.password, 10);
+      existingUser = await prisma.user.create({
+        data: { email: u.email, name: u.name, passwordHash: hash },
+      });
+      console.log(`✅ Created user: ${existingUser.email}`);
+    } else {
+      console.log(`✅ Found user: ${existingUser.email}`);
+    }
+  }
+
+  // =========================================================================
   // 2. Criar permissões (upsert - seguro rodar múltiplas vezes)
   // =========================================================================
   console.log('📋 Creating permissions...');
@@ -234,20 +257,26 @@ async function main() {
   });
 
   if (superAdminRole) {
-    await prisma.userRole.upsert({
-      where: {
-        userId_roleId: {
-          userId: user.id,
+    // Atribuir super-admin a todos os usuários do sistema
+    const allUsers = await prisma.user.findMany({
+      where: { email: { in: ['renato@atcsol.us', 'bruno@atcsol.us', 'marcos@atcsol.us'] } },
+    });
+    for (const u of allUsers) {
+      await prisma.userRole.upsert({
+        where: {
+          userId_roleId: {
+            userId: u.id,
+            roleId: superAdminRole.id,
+          },
+        },
+        update: {},
+        create: {
+          userId: u.id,
           roleId: superAdminRole.id,
         },
-      },
-      update: {},
-      create: {
-        userId: user.id,
-        roleId: superAdminRole.id,
-      },
-    });
-    console.log(`✅ User "${user.email}" assigned role "super-admin"`);
+      });
+      console.log(`✅ User "${u.email}" assigned role "super-admin"`);
+    }
   }
 
   // =========================================================================
