@@ -35,7 +35,7 @@ services:
       - navy-network
       - coolify
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3002/api"]
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:3002/api/auth/me', (r) => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
