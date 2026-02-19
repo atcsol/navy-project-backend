@@ -23,6 +23,7 @@ import { QueuesService } from './queues.service';
         redis: {
           host: configService.get('REDIS_HOST', 'localhost'),
           port: configService.get('REDIS_PORT', 6379),
+          ...(configService.get('REDIS_PASSWORD') && { password: configService.get('REDIS_PASSWORD') }),
         },
       }),
       inject: [ConfigService],
