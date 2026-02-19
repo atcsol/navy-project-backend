@@ -7,10 +7,25 @@ services:
     restart: unless-stopped
     expose:
       - "3002"
-    env_file:
-      - .env
     environment:
       - NODE_ENV=production
+      - PORT=3002
+      # Database (MySQL externo ou managed)
+      - DATABASE_URL=${DATABASE_URL}
+      # Redis (interno deste compose)
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRATION=${JWT_EXPIRATION:-7d}
+      # Encryption (Gmail tokens) — gerar com: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ENCRYPTION_IV=${ENCRYPTION_IV}
+      # Google OAuth2 (Gmail API)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL:-https://api.navy.atcsol.us/gmail/oauth/callback}
+      # Frontend URL (para CORS e redirects)
+      - FRONTEND_URL=${FRONTEND_URL:-https://navy.atcsol.us}
     depends_on:
       redis:
         condition: service_healthy
