@@ -40,6 +40,7 @@ services:
       timeout: 10s
       retries: 3
     labels:
+      - traefik.docker.network=coolify
       - traefik.enable=true
       - traefik.http.middlewares.navy-gzip.compress=true
       - traefik.http.middlewares.navy-redirect-backend-https.redirectscheme.scheme=https
