@@ -7,36 +7,33 @@ COPY prisma ./prisma/
 RUN npm ci
 RUN npx prisma generate
 
-# Stage 2: builder - compila TypeScript
+# Stage 2: builder - compila TypeScript e reinstala prod deps
 FROM node:22-alpine AS builder
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN npm run build
-
-# Stage 3: prod deps - reinstala apenas producao a partir do stage de build
-# Reutiliza o mesmo stage para evitar paralelismo de stages que consome muita RAM
+# Reinstala apenas deps de produção (sequencial para economizar RAM)
 RUN rm -rf node_modules && npm ci --omit=dev && npx prisma generate
 
-# Stage 4: runner - imagem final leve
+# Stage 3: runner - imagem final leve
 FROM node:22-alpine AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN addgroup --system --gid 1001 nestjs && \
-    adduser --system --uid 1001 nestjs
-
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/prisma ./prisma
-
-RUN chown -R nestjs:nestjs /app
-
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+RUN addgroup --system --gid 1001 nestjs && \
+    adduser --system --uid 1001 nestjs && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh && \
+    chown -R nestjs:nestjs /app
 
 USER nestjs
 
