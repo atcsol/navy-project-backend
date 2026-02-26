@@ -63,14 +63,13 @@ export class RfqsService {
   }
 
   async findAll(
-    userId: string,
     options?: {
       status?: string;
       opportunityId?: string;
       search?: string;
     },
   ) {
-    const where: Prisma.RfqWhereInput = { userId };
+    const where: Prisma.RfqWhereInput = {};
 
     if (options?.status) {
       where.status = options.status;
@@ -101,9 +100,9 @@ export class RfqsService {
     });
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const rfq = await this.prisma.rfq.findFirst({
-      where: { id, userId },
+      where: { id },
       include: {
         items: {
           include: { supplier: true },
@@ -125,8 +124,8 @@ export class RfqsService {
   // SEND RFQ EMAILS
   // =====================================================================
 
-  async send(id: string, userId: string) {
-    const rfq = await this.findOne(id, userId);
+  async send(id: string) {
+    const rfq = await this.findOne(id);
 
     if (rfq.status !== 'rascunho') {
       throw new BadRequestException('Apenas cotacoes em rascunho podem ser enviadas');
@@ -160,7 +159,6 @@ export class RfqsService {
 
         const emailResult = await this.gmailService.sendEmail(
           rfq.gmailAccountId,
-          userId,
           {
             to: item.supplier.email,
             subject: personalizedSubject,
@@ -224,10 +222,9 @@ export class RfqsService {
   async updateItem(
     rfqId: string,
     itemId: string,
-    userId: string,
     dto: UpdateRfqItemDto,
   ) {
-    const rfq = await this.findOne(rfqId, userId);
+    const rfq = await this.findOne(rfqId);
     const item = rfq.items.find((i) => i.id === itemId);
 
     if (!item) {
@@ -273,8 +270,8 @@ export class RfqsService {
   // FINALIZE / CANCEL
   // =====================================================================
 
-  async finalize(id: string, userId: string) {
-    const rfq = await this.findOne(id, userId);
+  async finalize(id: string) {
+    const rfq = await this.findOne(id);
 
     if (!['enviada', 'parcialmente_respondida', 'respondida'].includes(rfq.status)) {
       throw new BadRequestException('Cotacao nao pode ser finalizada neste status');
@@ -286,8 +283,8 @@ export class RfqsService {
     });
   }
 
-  async cancel(id: string, userId: string) {
-    const rfq = await this.findOne(id, userId);
+  async cancel(id: string) {
+    const rfq = await this.findOne(id);
 
     if (['finalizada', 'cancelada'].includes(rfq.status)) {
       throw new BadRequestException('Cotacao ja esta finalizada ou cancelada');
@@ -303,16 +300,16 @@ export class RfqsService {
   // CHECK FOR RESPONSES (called from email-sync)
   // =====================================================================
 
-  async checkForResponses(userId: string, gmailAccountId: string) {
+  async checkForResponses(gmailAccountId: string) {
     const sentItems = await this.prisma.rfqItem.findMany({
       where: {
         status: 'enviado',
         emailThreadId: { not: null },
-        rfq: { userId, gmailAccountId },
+        rfq: { gmailAccountId },
       },
       include: {
         supplier: { select: { name: true } },
-        rfq: { select: { id: true, title: true } },
+        rfq: { select: { id: true, title: true, userId: true } },
       },
     });
 
@@ -324,7 +321,6 @@ export class RfqsService {
       try {
         const result = await this.gmailService.checkThreadForNewMessages(
           gmailAccountId,
-          userId,
           item.emailThreadId,
           item.emailMessageId,
         );
@@ -339,7 +335,7 @@ export class RfqsService {
           });
 
           // Emit WebSocket notification
-          this.alertsGateway.emitRfqResponse(userId, {
+          this.alertsGateway.emitRfqResponse(item.rfq.userId, {
             rfqId: item.rfq.id,
             rfqItemId: item.id,
             supplierName: item.supplier.name,
@@ -365,9 +361,8 @@ export class RfqsService {
   // EMAIL TEMPLATES
   // =====================================================================
 
-  async findEmailTemplates(userId: string) {
+  async findEmailTemplates() {
     return this.prisma.rfqEmailTemplate.findMany({
-      where: { userId },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
   }
@@ -376,14 +371,14 @@ export class RfqsService {
     if (dto.isDefault) {
       // Unset other defaults
       await this.prisma.rfqEmailTemplate.updateMany({
-        where: { userId, isDefault: true },
+        where: { isDefault: true },
         data: { isDefault: false },
       });
     }
 
     return this.prisma.rfqEmailTemplate.create({
       data: {
-        userId,
+        userId,  // Still needed for DB record ownership
         name: dto.name,
         subject: dto.subject,
         body: dto.body,
@@ -394,11 +389,10 @@ export class RfqsService {
 
   async updateEmailTemplate(
     id: string,
-    userId: string,
     dto: UpdateRfqEmailTemplateDto,
   ) {
     const template = await this.prisma.rfqEmailTemplate.findFirst({
-      where: { id, userId },
+      where: { id },
     });
 
     if (!template) {
@@ -407,7 +401,7 @@ export class RfqsService {
 
     if (dto.isDefault) {
       await this.prisma.rfqEmailTemplate.updateMany({
-        where: { userId, isDefault: true, NOT: { id } },
+        where: { isDefault: true, NOT: { id } },
         data: { isDefault: false },
       });
     }
@@ -423,9 +417,9 @@ export class RfqsService {
     });
   }
 
-  async deleteEmailTemplate(id: string, userId: string) {
+  async deleteEmailTemplate(id: string) {
     const template = await this.prisma.rfqEmailTemplate.findFirst({
-      where: { id, userId },
+      where: { id },
     });
 
     if (!template) {

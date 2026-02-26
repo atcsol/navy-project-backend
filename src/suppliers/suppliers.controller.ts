@@ -40,13 +40,13 @@ export class SuppliersController {
     @Query('tags') tags?: string,
     @Query('isActive') isActive?: string,
   ) {
-    return this.suppliersService.findAll(user.id, { search, tags, isActive });
+    return this.suppliersService.findAll({ search, tags, isActive });
   }
 
   @Get(':id')
   @RequirePermission('suppliers.view')
   findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.suppliersService.findOne(id, user.id);
+    return this.suppliersService.findOne(id);
   }
 
   @Patch(':id')
@@ -56,12 +56,12 @@ export class SuppliersController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateSupplierDto,
   ) {
-    return this.suppliersService.update(id, user.id, dto);
+    return this.suppliersService.update(id, dto);
   }
 
   @Delete(':id')
   @RequirePermission('suppliers.delete')
   remove(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.suppliersService.remove(id, user.id);
+    return this.suppliersService.remove(id);
   }
 }

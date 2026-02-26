@@ -53,18 +53,16 @@ export class OpportunitiesController {
    */
   @Get('counts-by-status')
   @RequirePermission('opportunities.view')
-  countsByStatus(@CurrentUser() user: UserEntity) {
-    return this.opportunitiesService.countsByStatus(user.id);
+  countsByStatus() {
+    return this.opportunitiesService.countsByStatus();
   }
 
   @Get()
   @RequirePermission('opportunities.view')
   findAll(
-    @CurrentUser() user: UserEntity,
     @Query() query: FindOpportunitiesQueryDto,
   ) {
     return this.opportunitiesService.findAll(
-      user.id,
       query.page,
       query.limit,
       {
@@ -88,14 +86,14 @@ export class OpportunitiesController {
    */
   @Get(':id/children')
   @RequirePermission('opportunities.view')
-  findChildren(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.childOpportunitiesService.findChildren(id, user.id);
+  findChildren(@Param('id') id: string) {
+    return this.childOpportunitiesService.findChildren(id);
   }
 
   @Get(':id')
   @RequirePermission('opportunities.view')
-  findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.opportunitiesService.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.opportunitiesService.findOne(id);
   }
 
   @Patch(':id')
@@ -107,7 +105,6 @@ export class OpportunitiesController {
   ) {
     return this.opportunitiesService.update(
       id,
-      user.id,
       updateOpportunityDto,
     );
   }
@@ -141,7 +138,7 @@ export class OpportunitiesController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateQuotationPhaseDto,
   ) {
-    return this.opportunitiesService.updateQuotationPhase(id, user.id, dto);
+    return this.opportunitiesService.updateQuotationPhase(id, dto);
   }
 
   /**
@@ -183,7 +180,7 @@ export class OpportunitiesController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdatePurchaseDto,
   ) {
-    return this.opportunitiesService.updatePurchase(id, user.id, dto);
+    return this.opportunitiesService.updatePurchase(id, dto);
   }
 
   /**
@@ -197,7 +194,7 @@ export class OpportunitiesController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateDeliveryDto,
   ) {
-    return this.opportunitiesService.updateDelivery(id, user.id, dto);
+    return this.opportunitiesService.updateDelivery(id, dto);
   }
 
   // =====================================================================
@@ -207,19 +204,19 @@ export class OpportunitiesController {
   @Delete(':id')
   @RequirePermission('opportunities.delete')
   remove(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.opportunitiesService.softDelete(id, user.id);
+    return this.opportunitiesService.softDelete(id);
   }
 
   @Post(':id/restore')
   @RequirePermission('opportunities.update')
   restore(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.opportunitiesService.restore(id, user.id);
+    return this.opportunitiesService.restore(id);
   }
 
   @Delete(':id/hard')
   @RequirePermission('opportunities.delete')
   hardDelete(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.opportunitiesService.hardDelete(id, user.id);
+    return this.opportunitiesService.hardDelete(id);
   }
 
   @Post('cleanup')
@@ -228,6 +225,6 @@ export class OpportunitiesController {
     @CurrentUser() user: UserEntity,
     @Query('days', new ParseIntPipe({ optional: true })) days?: number,
   ) {
-    return this.opportunitiesService.cleanupOldDeleted(user.id, days || 30);
+    return this.opportunitiesService.cleanupOldDeleted(days || 30);
   }
 }

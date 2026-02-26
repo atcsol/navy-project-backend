@@ -34,7 +34,7 @@ export class RfqsController {
   @Get('email-templates')
   @RequirePermission('rfqs.view')
   findEmailTemplates(@CurrentUser() user: UserEntity) {
-    return this.rfqsService.findEmailTemplates(user.id);
+    return this.rfqsService.findEmailTemplates();
   }
 
   @Post('email-templates')
@@ -53,7 +53,7 @@ export class RfqsController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateRfqEmailTemplateDto,
   ) {
-    return this.rfqsService.updateEmailTemplate(id, user.id, dto);
+    return this.rfqsService.updateEmailTemplate(id, dto);
   }
 
   @Delete('email-templates/:id')
@@ -62,7 +62,7 @@ export class RfqsController {
     @Param('id') id: string,
     @CurrentUser() user: UserEntity,
   ) {
-    return this.rfqsService.deleteEmailTemplate(id, user.id);
+    return this.rfqsService.deleteEmailTemplate(id);
   }
 
   // =====================================================================
@@ -83,13 +83,13 @@ export class RfqsController {
     @Query('opportunityId') opportunityId?: string,
     @Query('search') search?: string,
   ) {
-    return this.rfqsService.findAll(user.id, { status, opportunityId, search });
+    return this.rfqsService.findAll({ status, opportunityId, search });
   }
 
   @Get(':id')
   @RequirePermission('rfqs.view')
   findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.rfqsService.findOne(id, user.id);
+    return this.rfqsService.findOne(id);
   }
 
   // =====================================================================
@@ -99,7 +99,7 @@ export class RfqsController {
   @Post(':id/send')
   @RequirePermission('rfqs.send')
   send(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.rfqsService.send(id, user.id);
+    return this.rfqsService.send(id);
   }
 
   @Patch(':id/items/:itemId')
@@ -110,18 +110,18 @@ export class RfqsController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateRfqItemDto,
   ) {
-    return this.rfqsService.updateItem(id, itemId, user.id, dto);
+    return this.rfqsService.updateItem(id, itemId, dto);
   }
 
   @Post(':id/finalize')
   @RequirePermission('rfqs.update')
   finalize(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.rfqsService.finalize(id, user.id);
+    return this.rfqsService.finalize(id);
   }
 
   @Post(':id/cancel')
   @RequirePermission('rfqs.update')
   cancel(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.rfqsService.cancel(id, user.id);
+    return this.rfqsService.cancel(id);
   }
 }

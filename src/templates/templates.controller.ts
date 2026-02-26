@@ -39,20 +39,20 @@ export class TemplatesController {
 
   @Get()
   @RequirePermission('templates.view')
-  findAll(@CurrentUser() user: UserEntity) {
-    return this.templatesService.findAll(user.id);
+  findAll() {
+    return this.templatesService.findAll();
   }
 
   @Get('active')
   @RequirePermission('templates.view')
-  findActive(@CurrentUser() user: UserEntity) {
-    return this.templatesService.findActive(user.id);
+  findActive() {
+    return this.templatesService.findActive();
   }
 
   @Get(':id')
   @RequirePermission('templates.view')
-  findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.templatesService.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.templatesService.findOne(id);
   }
 
   @Patch(':id')
@@ -62,13 +62,13 @@ export class TemplatesController {
     @CurrentUser() user: UserEntity,
     @Body() updateTemplateDto: UpdateTemplateDto,
   ) {
-    return this.templatesService.update(id, user.id, updateTemplateDto);
+    return this.templatesService.update(id, updateTemplateDto);
   }
 
   @Delete(':id')
   @RequirePermission('templates.delete')
   remove(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.templatesService.remove(id, user.id);
+    return this.templatesService.remove(id);
   }
 
   /**
@@ -81,8 +81,8 @@ export class TemplatesController {
     @Param('id') id: string,
     @CurrentUser() user: UserEntity,
   ) {
-    const template = await this.templatesService.findOne(id, user.id);
-    const accounts = await this.gmailService.findAllByUser(user.id);
+    const template = await this.templatesService.findOne(id);
+    const accounts = await this.gmailService.findAllByUser();
     const activeAccounts = accounts.filter((a) => a.isActive);
 
     if (activeAccounts.length === 0) {

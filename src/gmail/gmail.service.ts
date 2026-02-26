@@ -131,9 +131,9 @@ export class GmailService {
   /**
    * Lista todas as contas Gmail de um usuário
    */
-  async findAllByUser(userId: string) {
+  async findAllByUser() {
     return this.prisma.gmailAccount.findMany({
-      where: { userId },
+      where: {},
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -149,9 +149,9 @@ export class GmailService {
   /**
    * Busca uma conta Gmail específica
    */
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const account = await this.prisma.gmailAccount.findFirst({
-      where: { id, userId },
+      where: { id },
     });
 
     if (!account) {
@@ -164,8 +164,8 @@ export class GmailService {
   /**
    * Atualiza uma conta Gmail
    */
-  async update(id: string, userId: string, updateData: { isActive?: boolean }) {
-    const account = await this.findOne(id, userId);
+  async update(id: string, updateData: { isActive?: boolean }) {
+    const account = await this.findOne(id);
 
     return this.prisma.gmailAccount.update({
       where: { id: account.id },
@@ -176,8 +176,8 @@ export class GmailService {
   /**
    * Desconecta (desativa) uma conta Gmail
    */
-  async disconnect(id: string, userId: string) {
-    const account = await this.findOne(id, userId);
+  async disconnect(id: string) {
+    const account = await this.findOne(id);
 
     return this.prisma.gmailAccount.update({
       where: { id: account.id },
@@ -188,8 +188,8 @@ export class GmailService {
   /**
    * Deleta uma conta Gmail
    */
-  async remove(id: string, userId: string) {
-    const account = await this.findOne(id, userId);
+  async remove(id: string) {
+    const account = await this.findOne(id);
 
     await this.prisma.gmailAccount.delete({
       where: { id: account.id },
@@ -199,8 +199,8 @@ export class GmailService {
   /**
    * Obtém cliente OAuth2 autenticado para uma conta
    */
-  async getAuthenticatedClient(accountId: string, userId: string) {
-    const account = await this.findOne(accountId, userId);
+  async getAuthenticatedClient(accountId: string) {
+    const account = await this.findOne(accountId);
 
     if (!account.isActive) {
       throw new BadRequestException('Gmail account is not active');
@@ -243,8 +243,8 @@ export class GmailService {
   /**
    * Obtém API do Gmail autenticada
    */
-  async getGmailApi(accountId: string, userId: string) {
-    const auth = await this.getAuthenticatedClient(accountId, userId);
+  async getGmailApi(accountId: string) {
+    const auth = await this.getAuthenticatedClient(accountId);
     return google.gmail({ version: 'v1', auth });
   }
 
@@ -253,13 +253,12 @@ export class GmailService {
    */
   async listEmails(
     accountId: string,
-    userId: string,
     options: {
       query?: string; // Gmail search query (ex: "from:noreplyneco@us.navy.mil")
       maxResults?: number;
     } = {},
   ) {
-    const gmail = await this.getGmailApi(accountId, userId);
+    const gmail = await this.getGmailApi(accountId);
     const { query = '', maxResults = 20 } = options;
 
     try {
@@ -305,8 +304,8 @@ export class GmailService {
   /**
    * Obtém conteúdo completo de um email específico
    */
-  async getEmailContent(accountId: string, userId: string, messageId: string) {
-    const gmail = await this.getGmailApi(accountId, userId);
+  async getEmailContent(accountId: string, messageId: string) {
+    const gmail = await this.getGmailApi(accountId);
 
     try {
       const response = await gmail.users.messages.get({
@@ -391,8 +390,8 @@ export class GmailService {
    * Primeiro detecta padrões tabulares (linhas repetitivas separadas por espaço)
    * Depois extrai campos "Label: Value" das linhas restantes
    */
-  async analyzeEmail(accountId: string, userId: string, messageId: string) {
-    const email = await this.getEmailContent(accountId, userId, messageId);
+  async analyzeEmail(accountId: string, messageId: string) {
+    const email = await this.getEmailContent(accountId, messageId);
 
     let body = email.body;
 
@@ -730,7 +729,6 @@ export class GmailService {
    */
   async sendEmail(
     accountId: string,
-    userId: string,
     options: {
       to: string;
       subject: string;
@@ -739,8 +737,8 @@ export class GmailService {
       threadId?: string;
     },
   ): Promise<{ messageId: string; threadId: string }> {
-    const gmail = await this.getGmailApi(accountId, userId);
-    const account = await this.findOne(accountId, userId);
+    const gmail = await this.getGmailApi(accountId);
+    const account = await this.findOne(accountId);
 
     const boundary = `boundary_${Date.now()}`;
     const messageParts = [
@@ -802,11 +800,10 @@ export class GmailService {
    */
   async checkThreadForNewMessages(
     accountId: string,
-    userId: string,
     threadId: string,
     sinceMessageId: string,
   ): Promise<{ hasNewMessages: boolean; latestMessageId: string | null; snippet: string | null }> {
-    const gmail = await this.getGmailApi(accountId, userId);
+    const gmail = await this.getGmailApi(accountId);
 
     try {
       const response = await gmail.users.threads.get({

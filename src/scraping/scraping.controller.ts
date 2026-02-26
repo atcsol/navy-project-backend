@@ -65,7 +65,7 @@ export class ScrapingController {
     @Param('id') opportunityId: string,
     @CurrentUser() user: UserEntity,
   ) {
-    return this.scrapingService.scrapeOpportunity(opportunityId, user.id);
+    return this.scrapingService.scrapeOpportunity(opportunityId);
   }
 
   /**
@@ -75,7 +75,7 @@ export class ScrapingController {
   @Get('statistics')
   @RequirePermission('scraping.view')
   getStatistics(@CurrentUser() user: UserEntity) {
-    return this.scrapingService.getStatistics(user.id);
+    return this.scrapingService.getStatistics();
   }
 
   // ===== Domain Configs CRUD =====
@@ -136,7 +136,7 @@ export class ScrapingController {
     @Query('onlyFailed') onlyFailed?: string,
     @Query('limit') limit?: string,
   ) {
-    const result = await this.scrapingService.reprocessFromRawHtml(user.id, {
+    const result = await this.scrapingService.reprocessFromRawHtml({
       onlyFailed: onlyFailed === 'true',
       limit: limit ? parseInt(limit, 10) : undefined,
     });

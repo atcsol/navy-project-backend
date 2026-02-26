@@ -68,8 +68,8 @@ export class EmailSyncProcessor {
     );
 
     const templates = templateId
-      ? [await this.templatesService.findOne(templateId, userId)]
-      : await this.templatesService.findActive(userId);
+      ? [await this.templatesService.findOne(templateId)]
+      : await this.templatesService.findActive();
 
     if (templates.length === 0) {
       this.logger.warn(`No active templates found for user ${userId}`);
@@ -118,7 +118,7 @@ export class EmailSyncProcessor {
       progress.step = 'checking_rfq_responses';
       await job.progress(progress);
       try {
-        const rfqResult = await this.rfqsService.checkForResponses(userId, gmailAccountId);
+        const rfqResult = await this.rfqsService.checkForResponses(gmailAccountId);
         if (rfqResult.responsesFound > 0) {
           this.logger.log(`Found ${rfqResult.responsesFound} RFQ response(s)`);
         }
@@ -165,7 +165,6 @@ export class EmailSyncProcessor {
 
     const emails = await this.gmailService.listEmails(
       gmailAccountId,
-      userId,
       { query, maxResults: 100 },
     );
 
@@ -191,7 +190,6 @@ export class EmailSyncProcessor {
 
         const emailContent = await this.gmailService.getEmailContent(
           gmailAccountId,
-          userId,
           messageId,
         );
 

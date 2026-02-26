@@ -75,7 +75,7 @@ export class OpportunityProcessorQueue {
       };
     }
 
-    const template = await this.templatesService.findOne(templateId, userId) as unknown as TemplateWithWebScraping;
+    const template = await this.templatesService.findOne(templateId) as unknown as TemplateWithWebScraping;
     const outputSchema = template.outputSchema as unknown as OutputSchema;
     const fieldMapping: Record<string, string> =
       outputSchema.fieldMapping || {};

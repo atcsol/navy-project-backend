@@ -268,7 +268,6 @@ export class QueuesService {
    * Opção rescrape=true re-enfileira mesmo as que já foram processadas
    */
   async bulkEnqueueScraping(
-    userId: string,
     options: { rescrape?: boolean } = {},
   ): Promise<{ enqueued: number; totalPending: number; skippedExpired: number }> {
     const statusFilter = options.rescrape
@@ -281,7 +280,6 @@ export class QueuesService {
 
     const opportunities = await this.prisma.opportunity.findMany({
       where: {
-        userId,
         sourceUrl: { not: null },
         deletedAt: null,
         status: { not: 'cancelada' },
@@ -294,13 +292,13 @@ export class QueuesService {
         id: true,
         sourceUrl: true,
         templateId: true,
+        userId: true,
       },
     });
 
     // Conta quantas foram puladas por data vencida
     const totalWithExpired = await this.prisma.opportunity.count({
       where: {
-        userId,
         sourceUrl: { not: null },
         deletedAt: null,
         OR: [{ scrapingStatus: { in: statusFilter } }, { scrapingStatus: null }],
@@ -323,7 +321,7 @@ export class QueuesService {
 
       await this.addScrapingJob({
         opportunityId: opp.id,
-        userId,
+        userId: opp.userId,
         templateId: opp.templateId,
         sourceUrl: opp.sourceUrl,
       });
@@ -332,7 +330,6 @@ export class QueuesService {
 
     const totalPending = await this.prisma.opportunity.count({
       where: {
-        userId,
         scrapingStatus: { in: [ScrapingStatus.PENDING, ScrapingStatus.FAILED] },
         sourceUrl: { not: null },
         deletedAt: null,
@@ -348,7 +345,6 @@ export class QueuesService {
     if (skippedExpired > 0) {
       await this.prisma.opportunity.updateMany({
         where: {
-          userId,
           sourceUrl: { not: null },
           deletedAt: null,
           closingDate: { lt: today },
@@ -359,7 +355,7 @@ export class QueuesService {
     }
 
     this.logger.log(
-      `Bulk enqueued ${enqueued} scraping jobs for user ${userId} (rescrape=${!!options.rescrape}, skippedExpired=${skippedExpired})`,
+      `Bulk enqueued ${enqueued} scraping jobs (rescrape=${!!options.rescrape}, skippedExpired=${skippedExpired})`,
     );
 
     return { enqueued, totalPending, skippedExpired };
@@ -368,9 +364,7 @@ export class QueuesService {
   /**
    * Retry apenas oportunidades com falha de scraping
    */
-  async retryFailedScraping(
-    userId: string,
-  ): Promise<{ enqueued: number; byStatus: Record<string, number>; skippedExpired: number }> {
+  async retryFailedScraping(): Promise<{ enqueued: number; byStatus: Record<string, number>; skippedExpired: number }> {
     const failStatuses = [ScrapingStatus.FAILED, ScrapingStatus.BLOCKED, ScrapingStatus.TIMEOUT, ScrapingStatus.NECO_ERROR];
 
     const today = new Date();
@@ -378,7 +372,6 @@ export class QueuesService {
 
     const opportunities = await this.prisma.opportunity.findMany({
       where: {
-        userId,
         scrapingStatus: { in: failStatuses },
         sourceUrl: { not: null },
         deletedAt: null,
@@ -393,13 +386,13 @@ export class QueuesService {
         sourceUrl: true,
         templateId: true,
         scrapingStatus: true,
+        userId: true,
       },
     });
 
     // Conta puladas por expiração
     const totalFailed = await this.prisma.opportunity.count({
       where: {
-        userId,
         scrapingStatus: { in: failStatuses },
         sourceUrl: { not: null },
         deletedAt: null,
@@ -429,7 +422,7 @@ export class QueuesService {
 
       await this.addScrapingJob({
         opportunityId: opp.id,
-        userId,
+        userId: opp.userId,
         templateId: opp.templateId,
         sourceUrl: opp.sourceUrl,
       });
@@ -437,7 +430,7 @@ export class QueuesService {
     }
 
     this.logger.log(
-      `Retry failed: enqueued ${enqueued} scraping jobs for user ${userId} (${JSON.stringify(byStatus)}, skippedExpired=${skippedExpired})`,
+      `Retry failed: enqueued ${enqueued} scraping jobs (${JSON.stringify(byStatus)}, skippedExpired=${skippedExpired})`,
     );
 
     return { enqueued, byStatus, skippedExpired };
@@ -484,7 +477,7 @@ export class QueuesService {
   /**
    * Cancela tudo: drena fila + reseta status no banco
    */
-  async cancelScrapingQueue(userId: string): Promise<{ cancelled: boolean; removed: number; resetInDb: number }> {
+  async cancelScrapingQueue(): Promise<{ cancelled: boolean; removed: number; resetInDb: number }> {
     // 1. Resume se pausada
     const isPaused = await this.scrapingQueue.isPaused();
     if (isPaused) {
@@ -522,7 +515,6 @@ export class QueuesService {
     // 7. Reseta status 'pending' e 'disabled' no banco para NULL (limpo)
     const resetResult = await this.prisma.opportunity.updateMany({
       where: {
-        userId,
         scrapingStatus: { in: [ScrapingStatus.PENDING, ScrapingStatus.DISABLED] },
       },
       data: {
@@ -541,7 +533,6 @@ export class QueuesService {
    * Retorna logs de scraping paginados a partir da tabela opportunities
    */
   async getScrapingLogs(
-    userId: string,
     filters?: { status?: string; page?: number; limit?: number },
   ) {
     const page = filters?.page || 1;
@@ -549,7 +540,6 @@ export class QueuesService {
     const skip = (page - 1) * limit;
 
     const where: any = {
-      userId,
       sourceUrl: { not: null },
       deletedAt: null,
     };
@@ -594,7 +584,7 @@ export class QueuesService {
   /**
    * Retorna progresso do scraping: contagens do banco + fila Bull
    */
-  async getScrapingProgress(userId: string) {
+  async getScrapingProgress() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -602,7 +592,6 @@ export class QueuesService {
       this.prisma.opportunity.groupBy({
         by: ['scrapingStatus'],
         where: {
-          userId,
           sourceUrl: { not: null },
           deletedAt: null,
           OR: [
@@ -614,7 +603,6 @@ export class QueuesService {
       }),
       this.prisma.opportunity.count({
         where: {
-          userId,
           sourceUrl: { not: null },
           deletedAt: null,
           closingDate: { lt: today },

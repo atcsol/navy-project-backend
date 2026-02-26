@@ -140,11 +140,10 @@ export class ChildOpportunitiesService {
   /**
    * Lista filhas de uma oportunidade parent
    */
-  async findChildren(parentId: string, userId: string) {
+  async findChildren(parentId: string) {
     return this.prisma.opportunity.findMany({
       where: {
         parentOpportunityId: parentId,
-        userId,
         deletedAt: null,
       },
       orderBy: { createdAt: 'asc' },

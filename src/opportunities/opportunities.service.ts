@@ -46,13 +46,13 @@ export class OpportunitiesService {
   ) {}
 
   /**
-   * Busca oportunidade ativa (não deletada) do usuário ou lança 404
+   * Busca oportunidade ativa (não deletada) ou lança 404
    */
-  private findActiveOrThrow(id: string, userId: string) {
+  private findActiveOrThrow(id: string) {
     return findOrThrow(
       () =>
         this.prisma.opportunity.findFirst({
-          where: { id, userId, deletedAt: null },
+          where: { id, deletedAt: null },
         }),
       'Opportunity not found',
     );
@@ -132,7 +132,6 @@ export class OpportunitiesService {
    * Lista oportunidades com paginação e filtros
    */
   async findAll(
-    userId: string,
     page: number = 1,
     limit: number = 50,
     filters?: {
@@ -150,7 +149,6 @@ export class OpportunitiesService {
   ) {
     const skip = (page - 1) * limit;
     const where: Prisma.OpportunityWhereInput = {
-      userId,
       parentOpportunityId: null, // Filhas não aparecem na listagem principal
     };
 
@@ -249,11 +247,10 @@ export class OpportunitiesService {
   /**
    * Busca uma oportunidade específica
    */
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const opportunity = await this.prisma.opportunity.findFirst({
       where: {
         id,
-        userId,
         deletedAt: null,
       },
       include: {
@@ -287,8 +284,8 @@ export class OpportunitiesService {
   /**
    * Atualiza uma oportunidade (incluindo cálculos financeiros)
    */
-  async update(id: string, userId: string, updateDto: UpdateOpportunityDto) {
-    await this.findOne(id, userId);
+  async update(id: string, updateDto: UpdateOpportunityDto) {
+    await this.findOne(id);
 
     let offeredPrice: Decimal | undefined;
     let profitAmount: Decimal | undefined;
@@ -338,10 +335,10 @@ export class OpportunitiesService {
    */
   async transitionStatus(
     id: string,
-    userId: string,
+    userId: string, // usado apenas para historyEntry
     dto: TransitionStatusDto,
   ) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+    const opportunity = await this.findActiveOrThrow(id);
 
     const currentStatus = opportunity.status as OpportunityStatus;
     const allowedTransitions = VALID_TRANSITIONS[currentStatus] || [];
@@ -408,7 +405,7 @@ export class OpportunitiesService {
     });
 
     // Atualizar contagens em tempo real
-    const counts = await this.countsByStatus(opportunity.userId);
+    const counts = await this.countsByStatus();
     this.alertsGateway.emitCountsUpdate(opportunity.userId, counts);
 
     return updated;
@@ -420,10 +417,9 @@ export class OpportunitiesService {
 
   async updateQuotationPhase(
     id: string,
-    userId: string,
     dto: UpdateQuotationPhaseDto,
   ) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+    const opportunity = await this.findActiveOrThrow(id);
 
     if (opportunity.status !== OpportunityStatus.EM_COTACAO) {
       throw new BadRequestException(
@@ -447,8 +443,8 @@ export class OpportunitiesService {
   // WORKFLOW: BID
   // =====================================================================
 
-  async updateBid(id: string, userId: string, dto: UpdateBidDto) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+  async updateBid(id: string, userId: string, dto: UpdateBidDto) { // userId para historyEntry
+    const opportunity = await this.findActiveOrThrow(id);
 
     if (
       opportunity.status !== OpportunityStatus.LANCADA_BID &&
@@ -491,7 +487,7 @@ export class OpportunitiesService {
     userId: string,
     dto: UpdateBidResultDto,
   ) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+    const opportunity = await this.findActiveOrThrow(id);
 
     if (opportunity.status !== OpportunityStatus.LANCADA_BID) {
       throw new BadRequestException(
@@ -555,7 +551,7 @@ export class OpportunitiesService {
       action: 'status_changed',
       opportunity: updated,
     });
-    const counts = await this.countsByStatus(opportunity.userId);
+    const counts = await this.countsByStatus();
     this.alertsGateway.emitCountsUpdate(opportunity.userId, counts);
 
     return updated;
@@ -567,10 +563,9 @@ export class OpportunitiesService {
 
   async updatePurchase(
     id: string,
-    userId: string,
     dto: UpdatePurchaseDto,
   ) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+    const opportunity = await this.findActiveOrThrow(id);
 
     if (opportunity.status !== OpportunityStatus.VENCEDORA_BID) {
       throw new BadRequestException(
@@ -606,10 +601,9 @@ export class OpportunitiesService {
 
   async updateDelivery(
     id: string,
-    userId: string,
     dto: UpdateDeliveryDto,
   ) {
-    const opportunity = await this.findActiveOrThrow(id, userId);
+    const opportunity = await this.findActiveOrThrow(id);
 
     if (opportunity.status !== OpportunityStatus.VENCEDORA_BID) {
       throw new BadRequestException(
@@ -645,7 +639,7 @@ export class OpportunitiesService {
   // CONTAGENS POR STATUS (para badges das abas)
   // =====================================================================
 
-  async countsByStatus(userId: string) {
+  async countsByStatus() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -653,7 +647,6 @@ export class OpportunitiesService {
       this.prisma.opportunity.groupBy({
         by: ['status'],
         where: {
-          userId,
           deletedAt: null,
           parentOpportunityId: null,
           OR: [
@@ -665,7 +658,6 @@ export class OpportunitiesService {
       }),
       this.prisma.opportunity.count({
         where: {
-          userId,
           deletedAt: null,
           parentOpportunityId: null,
           closingDate: { lt: today },
@@ -690,11 +682,11 @@ export class OpportunitiesService {
   // CRUD existente
   // =====================================================================
 
-  async softDelete(id: string, userId: string) {
-    const opportunity = await this.findOne(id, userId);
+  async softDelete(id: string) {
+    const opportunity = await this.findOne(id);
 
     await this.fingerprintingService.updateFingerprintAction(
-      userId,
+      opportunity.userId,
       id,
       'deleted',
     );
@@ -705,9 +697,9 @@ export class OpportunitiesService {
     });
   }
 
-  async restore(id: string, userId: string) {
+  async restore(id: string) {
     await findOrThrow(
-      () => this.prisma.opportunity.findFirst({ where: { id, userId } }),
+      () => this.prisma.opportunity.findFirst({ where: { id } }),
       'Opportunity not found',
     );
 
@@ -717,10 +709,10 @@ export class OpportunitiesService {
     });
   }
 
-  async hardDelete(id: string, userId: string) {
-    await this.findOne(id, userId);
+  async hardDelete(id: string) {
+    const opportunity = await this.findOne(id);
 
-    await this.fingerprintingService.removeFingerprintRecord(userId, id);
+    await this.fingerprintingService.removeFingerprintRecord(opportunity.userId, id);
 
     await this.prisma.opportunity.delete({
       where: { id },
@@ -729,13 +721,12 @@ export class OpportunitiesService {
     this.logger.warn(`Opportunity hard deleted: ${id}`);
   }
 
-  async cleanupOldDeleted(userId: string, olderThanDays: number = 30) {
+  async cleanupOldDeleted(olderThanDays: number = 30) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
     const result = await this.prisma.opportunity.deleteMany({
       where: {
-        userId,
         deletedAt: {
           lt: cutoffDate,
         },

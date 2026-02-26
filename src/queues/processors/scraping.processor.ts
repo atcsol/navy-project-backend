@@ -57,7 +57,6 @@ export class ScrapingProcessorQueue {
     try {
       const result = await this.scrapingService.scrapeOpportunityAuto(
         opportunityId,
-        userId,
         templateId,
       );
 

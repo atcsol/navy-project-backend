@@ -118,8 +118,8 @@ export class GmailController {
   @Get('accounts')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('gmail.view')
-  findAll(@CurrentUser() user: UserEntity) {
-    return this.gmailService.findAllByUser(user.id);
+  findAll() {
+    return this.gmailService.findAllByUser();
   }
 
   /**
@@ -129,8 +129,8 @@ export class GmailController {
   @Get('accounts/:id')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('gmail.view')
-  findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.gmailService.findOne(id, user.id);
+  findOne(@Param('id') id: string) {
+    return this.gmailService.findOne(id);
   }
 
   /**
@@ -145,7 +145,7 @@ export class GmailController {
     @CurrentUser() user: UserEntity,
     @Body() dto: UpdateGmailAccountDto,
   ) {
-    return this.gmailService.update(id, user.id, dto);
+    return this.gmailService.update(id, dto);
   }
 
   /**
@@ -156,7 +156,7 @@ export class GmailController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('gmail.delete')
   disconnect(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.gmailService.disconnect(id, user.id);
+    return this.gmailService.disconnect(id);
   }
 
   /**
@@ -167,7 +167,7 @@ export class GmailController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('gmail.delete')
   remove(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.gmailService.remove(id, user.id);
+    return this.gmailService.remove(id);
   }
 
   /**
@@ -181,7 +181,7 @@ export class GmailController {
     @Param('id') id: string,
     @CurrentUser() user: UserEntity,
   ) {
-    const account = await this.gmailService.findOne(id, user.id);
+    const account = await this.gmailService.findOne(id);
 
     const jobId = await this.queuesService.addEmailSyncJob(
       user.id,
@@ -220,7 +220,7 @@ export class GmailController {
     @Query('query') query?: string,
     @Query('maxResults') maxResults?: string,
   ) {
-    return this.gmailService.listEmails(accountId, user.id, {
+    return this.gmailService.listEmails(accountId, {
       query,
       maxResults: maxResults ? parseInt(maxResults, 10) : 20,
     });
@@ -238,7 +238,7 @@ export class GmailController {
     @Param('messageId') messageId: string,
     @CurrentUser() user: UserEntity,
   ) {
-    return this.gmailService.getEmailContent(accountId, user.id, messageId);
+    return this.gmailService.getEmailContent(accountId, messageId);
   }
 
   /**
@@ -253,6 +253,6 @@ export class GmailController {
     @Param('messageId') messageId: string,
     @CurrentUser() user: UserEntity,
   ) {
-    return this.gmailService.analyzeEmail(accountId, user.id, messageId);
+    return this.gmailService.analyzeEmail(accountId, messageId);
   }
 }

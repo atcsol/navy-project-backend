@@ -45,15 +45,14 @@ export class TemplatesService {
       });
     }
 
-    return this.findOne(template.id, userId);
+    return this.findOne(template.id);
   }
 
   /**
    * Lista todos os templates do usuário
    */
-  async findAll(userId: string) {
+  async findAll() {
     return this.prisma.parsingTemplate.findMany({
-      where: { userId },
       include: { webScrapingConfig: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -62,10 +61,9 @@ export class TemplatesService {
   /**
    * Lista templates ativos do usuário
    */
-  async findActive(userId: string) {
+  async findActive() {
     return this.prisma.parsingTemplate.findMany({
       where: {
-        userId,
         isActive: true,
       },
       include: { webScrapingConfig: true },
@@ -76,9 +74,9 @@ export class TemplatesService {
   /**
    * Busca um template específico
    */
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const template = await this.prisma.parsingTemplate.findFirst({
-      where: { id, userId },
+      where: { id },
       include: { webScrapingConfig: true },
     });
 
@@ -92,8 +90,8 @@ export class TemplatesService {
   /**
    * Atualiza um template
    */
-  async update(id: string, userId: string, updateTemplateDto: UpdateTemplateDto) {
-    await this.findOne(id, userId); // Verifica se existe
+  async update(id: string, updateTemplateDto: UpdateTemplateDto) {
+    await this.findOne(id); // Verifica se existe
 
     // Valida campos se foram fornecidos
     if (updateTemplateDto.extractionConfig) {
@@ -137,14 +135,14 @@ export class TemplatesService {
       });
     }
 
-    return this.findOne(id, userId);
+    return this.findOne(id);
   }
 
   /**
    * Remove um template
    */
-  async remove(id: string, userId: string) {
-    await this.findOne(id, userId); // Verifica se existe
+  async remove(id: string) {
+    await this.findOne(id); // Verifica se existe
 
     // Verifica se existem oportunidades usando este template
     const opportunitiesCount = await this.prisma.opportunity.count({

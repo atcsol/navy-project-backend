@@ -136,10 +136,9 @@ export class ScrapingService {
    */
   async scrapeOpportunity(
     opportunityId: string,
-    userId: string,
   ): Promise<ScrapingResult> {
     const opportunity = await this.prisma.opportunity.findFirst({
-      where: { id: opportunityId, userId },
+      where: { id: opportunityId },
     });
 
     if (!opportunity) {
@@ -189,7 +188,7 @@ export class ScrapingService {
       };
     } else {
       // Fallback para config global
-      domainConfig = await this.getDomainConfig(domain, userId);
+      domainConfig = await this.getDomainConfig(domain, opportunity.userId);
     }
 
     if (!domainConfig.enabled) {
@@ -226,7 +225,7 @@ export class ScrapingService {
       };
     }
 
-    return this.scrapeWithRetry(opportunity.sourceUrl, opportunityId, domainConfig, userId);
+    return this.scrapeWithRetry(opportunity.sourceUrl, opportunityId, domainConfig);
   }
 
   /**
@@ -235,7 +234,6 @@ export class ScrapingService {
    */
   async scrapeOpportunityAuto(
     opportunityId: string,
-    userId: string,
     templateId: string,
   ): Promise<ScrapingResult> {
     // Verifica se template tem scraping habilitado
@@ -255,7 +253,7 @@ export class ScrapingService {
       };
     }
 
-    return this.scrapeOpportunity(opportunityId, userId);
+    return this.scrapeOpportunity(opportunityId);
   }
 
   /**
@@ -852,7 +850,6 @@ export class ScrapingService {
    * Retorna resultado por oportunidade para criação de filhas pelo chamador.
    */
   async reprocessFromRawHtml(
-    userId: string,
     options?: { limit?: number; onlyFailed?: boolean },
   ): Promise<{
     processed: number;
@@ -861,7 +858,6 @@ export class ScrapingService {
     results: Array<{ id: string; totalLineItems: number; success: boolean; error?: string }>;
   }> {
     const where: Prisma.OpportunityWhereInput = {
-      userId,
       rawHtml: { not: null },
       sourceUrl: { not: null },
       deletedAt: null,
@@ -932,17 +928,16 @@ export class ScrapingService {
   /**
    * Obtém estatísticas de scraping
    */
-  async getStatistics(userId: string) {
+  async getStatistics() {
     const stats = await this.prisma.opportunity.groupBy({
       by: ['scrapingStatus'],
-      where: { userId },
       _count: {
         scrapingStatus: true,
       },
     });
 
     return {
-      total: await this.prisma.opportunity.count({ where: { userId } }),
+      total: await this.prisma.opportunity.count(),
       byStatus: stats.reduce(
         (acc, item) => {
           acc[item.scrapingStatus || 'never_attempted'] = item._count.scrapingStatus;

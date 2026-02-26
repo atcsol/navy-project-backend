@@ -44,7 +44,7 @@ export class QueuesController {
     @CurrentUser() user: UserEntity,
     @Body() dto: EnqueueScrapingDto,
   ) {
-    return this.queuesService.bulkEnqueueScraping(user.id, {
+    return this.queuesService.bulkEnqueueScraping({
       rescrape: dto.rescrape || false,
     });
   }
@@ -56,7 +56,7 @@ export class QueuesController {
   @Post('scraping/retry-failed')
   @RequirePermission('scraping.manage')
   async retryFailedScraping(@CurrentUser() user: UserEntity) {
-    return this.queuesService.retryFailedScraping(user.id);
+    return this.queuesService.retryFailedScraping();
   }
 
   /**
@@ -71,7 +71,7 @@ export class QueuesController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.queuesService.getScrapingLogs(user.id, {
+    return this.queuesService.getScrapingLogs({
       status: status || undefined,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 50,
@@ -85,7 +85,7 @@ export class QueuesController {
   @Get('scraping/progress')
   @RequirePermission('scraping.view')
   async scrapingProgress(@CurrentUser() user: UserEntity) {
-    return this.queuesService.getScrapingProgress(user.id);
+    return this.queuesService.getScrapingProgress();
   }
 
   /**
@@ -125,6 +125,6 @@ export class QueuesController {
   @Post('scraping/cancel')
   @RequirePermission('scraping.manage')
   async cancelScraping(@CurrentUser() user: UserEntity) {
-    return this.queuesService.cancelScrapingQueue(user.id);
+    return this.queuesService.cancelScrapingQueue();
   }
 }

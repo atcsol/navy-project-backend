@@ -37,14 +37,13 @@ export class SuppliersService {
   }
 
   async findAll(
-    userId: string,
     options?: {
       search?: string;
       tags?: string;
       isActive?: string;
     },
   ) {
-    const where: Prisma.SupplierWhereInput = { userId };
+    const where: Prisma.SupplierWhereInput = {};
 
     if (options?.isActive !== undefined && options.isActive !== '') {
       where.isActive = options.isActive === 'true';
@@ -77,9 +76,9 @@ export class SuppliersService {
     return suppliers;
   }
 
-  async findOne(id: string, userId: string) {
+  async findOne(id: string) {
     const supplier = await this.prisma.supplier.findFirst({
-      where: { id, userId },
+      where: { id },
     });
 
     if (!supplier) {
@@ -89,13 +88,12 @@ export class SuppliersService {
     return supplier;
   }
 
-  async update(id: string, userId: string, dto: UpdateSupplierDto) {
-    await this.findOne(id, userId);
+  async update(id: string, dto: UpdateSupplierDto) {
+    await this.findOne(id);
 
     if (dto.email) {
       const existing = await this.prisma.supplier.findFirst({
         where: {
-          userId,
           email: dto.email,
           NOT: { id },
         },
@@ -125,8 +123,8 @@ export class SuppliersService {
     });
   }
 
-  async remove(id: string, userId: string) {
-    await this.findOne(id, userId);
+  async remove(id: string) {
+    await this.findOne(id);
     await this.prisma.supplier.delete({ where: { id } });
   }
 }
