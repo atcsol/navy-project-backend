@@ -37,13 +37,12 @@ export class AlertsService {
   }
 
   async findAll(
-    userId: string,
     page: number = 1,
     limit: number = 20,
     filters?: { unreadOnly?: boolean; type?: string },
   ) {
     const skip = (page - 1) * limit;
-    const where: { userId: string; isRead?: boolean; type?: string } = { userId };
+    const where: { isRead?: boolean; type?: string } = {};
 
     if (filters?.unreadOnly) {
       where.isRead = false;
@@ -83,23 +82,23 @@ export class AlertsService {
     };
   }
 
-  async markAsRead(alertId: string, userId: string) {
+  async markAsRead(alertId: string) {
     return this.prisma.opportunityAlert.updateMany({
-      where: { id: alertId, userId },
+      where: { id: alertId },
       data: { isRead: true },
     });
   }
 
-  async markAllAsRead(userId: string) {
+  async markAllAsRead() {
     return this.prisma.opportunityAlert.updateMany({
-      where: { userId, isRead: false },
+      where: { isRead: false },
       data: { isRead: true },
     });
   }
 
-  async unreadCount(userId: string) {
+  async unreadCount() {
     const count = await this.prisma.opportunityAlert.count({
-      where: { userId, isRead: false },
+      where: { isRead: false },
     });
     return { count };
   }

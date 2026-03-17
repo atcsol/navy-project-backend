@@ -27,7 +27,7 @@ export class AlertsController {
   @Get('unread-count')
   @RequirePermission('alerts.view')
   unreadCount(@CurrentUser() user: UserEntity) {
-    return this.alertsService.unreadCount(user.id);
+    return this.alertsService.unreadCount();
   }
 
   /**
@@ -40,7 +40,7 @@ export class AlertsController {
     @CurrentUser() user: UserEntity,
     @Query() query: FindAlertsQueryDto,
   ) {
-    return this.alertsService.findAll(user.id, query.page, query.limit, {
+    return this.alertsService.findAll(query.page, query.limit, {
       unreadOnly: query.unreadOnly === 'true',
       type: query.type,
     });
@@ -56,7 +56,7 @@ export class AlertsController {
     @Param('id') id: string,
     @CurrentUser() user: UserEntity,
   ) {
-    return this.alertsService.markAsRead(id, user.id);
+    return this.alertsService.markAsRead(id);
   }
 
   /**
@@ -66,6 +66,6 @@ export class AlertsController {
   @Post('mark-all-read')
   @RequirePermission('alerts.view')
   markAllAsRead(@CurrentUser() user: UserEntity) {
-    return this.alertsService.markAllAsRead(user.id);
+    return this.alertsService.markAllAsRead();
   }
 }
