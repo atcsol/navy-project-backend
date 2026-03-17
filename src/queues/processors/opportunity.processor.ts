@@ -81,14 +81,10 @@ export class OpportunityProcessorQueue {
       outputSchema.fieldMapping || {};
 
     const webScrapingConfig = template.webScrapingConfig;
-    const templateScrapingEnabled = webScrapingConfig?.isEnabled === true;
-
-    // Verifica autoScrapeOnSync nas settings do usuário
-    const userSettings = await this.scrapingService.getSettings(userId);
-    const scrapingEnabled = templateScrapingEnabled || userSettings.autoScrapeOnSync;
+    const scrapingEnabled = webScrapingConfig?.isEnabled === true;
 
     if (scrapingEnabled) {
-      this.logger.log(`Scraping enabled for template ${templateId} (template=${templateScrapingEnabled}, autoScrape=${userSettings.autoScrapeOnSync})`);
+      this.logger.log(`Scraping enabled for template ${templateId}`);
     }
 
     const parsedEmail: ParsedEmail = {
