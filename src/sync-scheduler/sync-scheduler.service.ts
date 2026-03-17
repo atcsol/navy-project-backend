@@ -39,61 +39,35 @@ export class SyncSchedulerService {
   }
 
   /**
-   * Cron que roda a cada minuto para verificar quais usuários precisam de sync
+   * Cron que roda a cada 30 minutos para sincronizar TODAS as contas Gmail ativas.
+   * Não depende de configuração por usuário — é global.
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_30_MINUTES)
   async handleAutoSync() {
-    const settings = await this.prisma.emailSyncSettings.findMany({
-      where: { autoSyncEnabled: true },
-      include: {
-        user: {
-          include: {
-            gmailAccounts: {
-              where: { isActive: true },
-            },
-          },
-        },
-      },
+    const activeAccounts = await this.prisma.gmailAccount.findMany({
+      where: { isActive: true },
     });
 
-    for (const setting of settings) {
-      const now = new Date();
-      const lastSync = setting.lastAutoSync;
-      const intervalMs = setting.syncIntervalMinutes * 60 * 1000;
+    if (activeAccounts.length === 0) {
+      return;
+    }
 
-      // Verifica se já passou o intervalo desde a última sync
-      if (lastSync && now.getTime() - lastSync.getTime() < intervalMs) {
-        continue;
+    this.logger.log(
+      `Auto-sync triggered for ${activeAccounts.length} active Gmail account(s)`,
+    );
+
+    for (const account of activeAccounts) {
+      try {
+        await this.queuesService.addEmailSyncJob(
+          account.userId,
+          account.id,
+          account.lastSync || undefined,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to enqueue auto-sync for account ${account.email}: ${(error as Error).message}`,
+        );
       }
-
-      const activeAccounts = setting.user.gmailAccounts;
-      if (activeAccounts.length === 0) {
-        continue;
-      }
-
-      this.logger.log(
-        `Auto-sync triggered for user ${setting.userId} (${activeAccounts.length} accounts)`,
-      );
-
-      // Enfileira sync para cada conta Gmail ativa
-      for (const account of activeAccounts) {
-        try {
-          await this.queuesService.addEmailSyncJob(
-            setting.userId,
-            account.id,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Failed to enqueue auto-sync for account ${account.id}: ${error.message}`,
-          );
-        }
-      }
-
-      // Atualiza lastAutoSync
-      await this.prisma.emailSyncSettings.update({
-        where: { id: setting.id },
-        data: { lastAutoSync: now },
-      });
     }
   }
 }
