@@ -25,6 +25,11 @@ import { QueuesService } from './queues.service';
           port: configService.get('REDIS_PORT', 6379),
           ...(configService.get('REDIS_PASSWORD') && { password: configService.get('REDIS_PASSWORD') }),
         },
+        defaultJobOptions: {
+          removeOnComplete: 100, // Manter apenas os últimos 100 jobs completos
+          removeOnFail: 200,     // Manter apenas os últimos 200 jobs falhados
+          attempts: 3,
+        },
       }),
       inject: [ConfigService],
     }),
