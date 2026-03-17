@@ -590,3 +590,27 @@ model ScrapingSettings {
 
   @@map("scraping_settings")
 }
+
+// ============================================================================
+// QUEUE JOB LOGS (Histórico de execução de jobs no MySQL)
+// ============================================================================
+
+model QueueJobLog {
+  id              String    @id @default(uuid())
+  queue           String    // email-sync, opportunity-processing, scraping
+  jobId           String?   @map("job_id") // Bull job ID
+  status          String    // completed, failed, skipped
+  opportunityId   String?   @map("opportunity_id")
+  gmailAccountId  String?   @map("gmail_account_id")
+  templateId      String?   @map("template_id")
+  sourceUrl       String?   @map("source_url") @db.Text
+  durationMs      Int?      @map("duration_ms")
+  error           String?   @db.Text
+  metadata        Json?     // Dados extras (emails processados, oportunidades criadas, etc.)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([queue, createdAt], name: "idx_job_logs_queue")
+  @@index([opportunityId], name: "idx_job_logs_opportunity")
+  @@index([status, createdAt], name: "idx_job_logs_status")
+  @@map("queue_job_logs")
+}

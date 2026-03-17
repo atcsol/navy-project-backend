@@ -54,6 +54,8 @@ export class ScrapingProcessorQueue {
       }
     }
 
+    const startTime = Date.now();
+
     try {
       const result = await this.scrapingService.scrapeOpportunityAuto(
         opportunityId,
@@ -63,6 +65,25 @@ export class ScrapingProcessorQueue {
       this.logger.log(
         `Scraping job for opportunity ${opportunityId}: status=${result.status}, success=${result.success}`,
       );
+
+      // Grava log no banco
+      try {
+        await this.prisma.queueJobLog.create({
+          data: {
+            queue: 'scraping',
+            jobId: String(job.id),
+            status: result.success ? 'completed' : 'failed',
+            opportunityId,
+            templateId,
+            sourceUrl,
+            durationMs: Date.now() - startTime,
+            error: result.error || null,
+            metadata: { scrapingStatus: result.status },
+          },
+        });
+      } catch (logErr) {
+        this.logger.error(`Failed to save job log: ${logErr.message}`);
+      }
 
       // Cria oportunidades filhas se multi-line items (P3)
       if (result.success && result.data?.neco) {
@@ -94,6 +115,24 @@ export class ScrapingProcessorQueue {
 
       return result;
     } catch (error) {
+      // Grava falha no banco
+      try {
+        await this.prisma.queueJobLog.create({
+          data: {
+            queue: 'scraping',
+            jobId: String(job.id),
+            status: 'failed',
+            opportunityId,
+            templateId,
+            sourceUrl,
+            durationMs: Date.now() - startTime,
+            error: error.message,
+          },
+        });
+      } catch (logErr) {
+        this.logger.error(`Failed to save job log: ${logErr.message}`);
+      }
+
       this.logger.error(
         `Scraping job failed for opportunity ${opportunityId}: ${error.message}`,
       );

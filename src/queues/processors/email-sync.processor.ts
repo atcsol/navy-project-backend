@@ -136,12 +136,37 @@ export class EmailSyncProcessor {
     progress.step = 'completed';
     await job.progress(progress);
 
+    const durationMs = Date.now() - job.timestamp;
+    const success = progress.errors.length === 0;
+
     this.logger.log(
       `Email sync completed: ${progress.emailsFound} found, ${progress.emailsEnqueued} enqueued, ${progress.errors.length} errors`,
     );
 
+    // Grava log no banco
+    try {
+      await this.prisma.queueJobLog.create({
+        data: {
+          queue: 'email-sync',
+          jobId: String(job.id),
+          status: success ? 'completed' : 'failed',
+          gmailAccountId,
+          templateId: templateId || null,
+          durationMs,
+          error: progress.errors.length > 0 ? progress.errors.join('; ') : null,
+          metadata: {
+            emailsFound: progress.emailsFound,
+            emailsEnqueued: progress.emailsEnqueued,
+            templatesMatched: templates.length,
+          },
+        },
+      });
+    } catch (logErr) {
+      this.logger.error(`Failed to save job log: ${(logErr as Error).message}`);
+    }
+
     return {
-      success: progress.errors.length === 0,
+      success,
       templatesMatched: templates.length,
       emailsFound: progress.emailsFound,
       jobsEnqueued: progress.emailsEnqueued,

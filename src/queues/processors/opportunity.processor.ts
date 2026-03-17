@@ -341,9 +341,36 @@ export class OpportunityProcessorQueue {
       }
     }
 
+    const durationMs = Date.now() - job.timestamp;
+
     this.logger.log(
       `Email ${emailMessageId}: ${result.created} created, ${result.updated} updated, ${result.duplicates} duplicates, ${result.errors} errors, ${result.cancellationsDetected} cancellations, ${result.scrapingJobIds.length} scraping jobs`,
     );
+
+    // Grava log no banco
+    try {
+      await this.prisma.queueJobLog.create({
+        data: {
+          queue: 'opportunity-processing',
+          jobId: String(job.id),
+          status: result.errors > 0 ? 'failed' : 'completed',
+          gmailAccountId,
+          templateId: templateId || null,
+          durationMs,
+          error: result.errors > 0 ? `${result.errors} error(s) processing items` : null,
+          metadata: {
+            created: result.created,
+            updated: result.updated,
+            duplicates: result.duplicates,
+            cancellationsDetected: result.cancellationsDetected,
+            scrapingJobsEnqueued: result.scrapingJobIds.length,
+            emailMessageId,
+          },
+        },
+      });
+    } catch (logErr) {
+      this.logger.error(`Failed to save job log: ${(logErr as Error).message}`);
+    }
 
     return result;
   }
