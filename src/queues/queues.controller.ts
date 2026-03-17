@@ -34,6 +34,26 @@ export class QueuesController {
   }
 
   /**
+   * Logs de sincronização (email-sync + opportunity-processing)
+   * GET /api/queues/sync/logs?queue=email-sync&status=completed&page=1&limit=50
+   */
+  @Get('sync/logs')
+  @RequirePermission('queues.view')
+  async syncLogs(
+    @Query('queue') queue?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.queuesService.getSyncLogs({
+      queue: queue || undefined,
+      status: status || undefined,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 50,
+    });
+  }
+
+  /**
    * Enfileira oportunidades para scraping via Bull queue (background)
    * POST /api/queues/scraping/enqueue
    * Body: { rescrape?: boolean }

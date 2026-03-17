@@ -577,6 +577,49 @@ export class QueuesService {
     };
   }
 
+  /**
+   * Retorna logs de sync (email-sync + opportunity-processing) da tabela queue_job_logs
+   */
+  async getSyncLogs(
+    filters?: { queue?: string; status?: string; page?: number; limit?: number },
+  ) {
+    const page = filters?.page || 1;
+    const limit = Math.min(filters?.limit || 50, 100);
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      queue: { in: ['email-sync', 'opportunity-processing'] },
+    };
+
+    if (filters?.queue) {
+      where.queue = filters.queue;
+    }
+
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.queueJobLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.queueJobLog.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async isScrapingQueuePaused(): Promise<boolean> {
     return this.scrapingQueue.isPaused();
   }
