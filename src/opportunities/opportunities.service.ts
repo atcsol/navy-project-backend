@@ -120,6 +120,38 @@ export class OpportunitiesService {
     updatedAt: true,
   } satisfies Prisma.OpportunitySelect;
 
+  /**
+   * Select do EXPORT — só as colunas (escalares) que vão para o Excel.
+   * NÃO inclui scrapedData (JSON grande) nem nenhum blob, para o export de
+   * milhares de linhas ficar leve e não travar (payload pequeno + sem sort pesado).
+   */
+  private static readonly EXPORT_SELECT = {
+    id: true,
+    solicitationNumber: true,
+    site: true,
+    description: true,
+    nsn: true,
+    partNumber: true,
+    manufacturer: true,
+    condition: true,
+    unit: true,
+    quantity: true,
+    purchasePrice: true,
+    profitMargin: true,
+    offeredPrice: true,
+    profitAmount: true,
+    wonPrice: true,
+    bidPrice: true,
+    closingDate: true,
+    deliveryDate: true,
+    urgencyLevel: true,
+    status: true,
+    quotationPhase: true,
+    purchaseStatus: true,
+    supplierName: true,
+    sourceUrl: true,
+  } satisfies Prisma.OpportunitySelect;
+
   constructor(
     private prisma: PrismaService,
     private fingerprintingService: FingerprintingService,
@@ -371,13 +403,22 @@ export class OpportunitiesService {
       }),
     ]);
 
-    // 2) hidrata em lotes (evita IN gigante e mantém o sort buffer pequeno)
+    // 2) hidrata em lotes só com EXPORT_SELECT (sem scrapedData) — payload leve
     const ids = ordered.map((o) => o.id);
     const CHUNK = 2000;
-    const data: Awaited<ReturnType<typeof this.hydrateByIds>> = [];
+    type ExportRow = Prisma.OpportunityGetPayload<{ select: typeof OpportunitiesService.EXPORT_SELECT }>;
+    const data: ExportRow[] = [];
     for (let i = 0; i < ids.length; i += CHUNK) {
-      const part = await this.hydrateByIds(ids.slice(i, i + CHUNK));
-      data.push(...part);
+      const slice = ids.slice(i, i + CHUNK);
+      const rows = await this.prisma.opportunity.findMany({
+        where: { id: { in: slice } },
+        select: OpportunitiesService.EXPORT_SELECT,
+      });
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      for (const id of slice) {
+        const r = byId.get(id);
+        if (r) data.push(r);
+      }
     }
 
     return {
