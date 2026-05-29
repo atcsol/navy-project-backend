@@ -294,6 +294,31 @@ export class OpportunitiesService {
     return where;
   }
 
+  // Ordenação padrão da listagem/export
+  private static readonly LIST_ORDER_BY: Prisma.OpportunityOrderByWithRelationInput[] = [
+    { closingDate: { sort: 'asc', nulls: 'last' } },
+    { createdAt: 'desc' },
+  ];
+
+  /**
+   * Busca, na ordem, as linhas completas (LIST_SELECT) a partir de uma lista de ids.
+   * Usado pelo padrão "deferred join": primeiro ordena/pagina trazendo só ids
+   * (sort barato), depois hidrata as colunas pesadas só das linhas da página.
+   * Isso evita o erro MySQL 1038 (Out of sort memory) que ocorre quando o
+   * filesort empacota colunas grandes (scrapedData/description/notes) de milhares
+   * de linhas no sort buffer.
+   */
+  private async hydrateByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.prisma.opportunity.findMany({
+      where: { id: { in: ids } },
+      select: OpportunitiesService.LIST_SELECT,
+    });
+    // O IN não preserva a ordem — reordena conforme os ids ordenados
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.map((id) => byId.get(id)).filter((r): r is (typeof rows)[number] => Boolean(r));
+  }
+
   /**
    * Lista oportunidades com paginação e filtros
    */
@@ -301,19 +326,20 @@ export class OpportunitiesService {
     const skip = (page - 1) * limit;
     const where = this.buildListWhere(filters);
 
-    const [total, opportunities] = await Promise.all([
+    // 1) Ordena/pagina trazendo só ids (filesort leve — não estoura o sort buffer)
+    const [total, ordered] = await Promise.all([
       this.prisma.opportunity.count({ where }),
       this.prisma.opportunity.findMany({
         where,
         skip,
         take: limit,
-        select: OpportunitiesService.LIST_SELECT,
-        orderBy: [
-          { closingDate: { sort: 'asc', nulls: 'last' } },
-          { createdAt: 'desc' },
-        ],
+        select: { id: true },
+        orderBy: OpportunitiesService.LIST_ORDER_BY,
       }),
     ]);
+
+    // 2) Hidrata as colunas completas só das linhas da página
+    const opportunities = await this.hydrateByIds(ordered.map((o) => o.id));
 
     return {
       data: opportunities,
@@ -334,18 +360,25 @@ export class OpportunitiesService {
   async exportAll(filters?: ListFilters) {
     const where = this.buildListWhere(filters);
 
-    const [total, data] = await Promise.all([
+    // 1) ids ordenados (sort leve), limitado ao teto
+    const [total, ordered] = await Promise.all([
       this.prisma.opportunity.count({ where }),
       this.prisma.opportunity.findMany({
         where,
         take: OpportunitiesService.EXPORT_MAX_ROWS,
-        select: OpportunitiesService.LIST_SELECT,
-        orderBy: [
-          { closingDate: { sort: 'asc', nulls: 'last' } },
-          { createdAt: 'desc' },
-        ],
+        select: { id: true },
+        orderBy: OpportunitiesService.LIST_ORDER_BY,
       }),
     ]);
+
+    // 2) hidrata em lotes (evita IN gigante e mantém o sort buffer pequeno)
+    const ids = ordered.map((o) => o.id);
+    const CHUNK = 2000;
+    const data: Awaited<ReturnType<typeof this.hydrateByIds>> = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const part = await this.hydrateByIds(ids.slice(i, i + CHUNK));
+      data.push(...part);
+    }
 
     return {
       data,
