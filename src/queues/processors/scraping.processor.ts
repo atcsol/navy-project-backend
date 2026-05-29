@@ -18,6 +18,12 @@ export interface ScrapingJob {
 export class ScrapingProcessorQueue {
   private readonly logger = new Logger(ScrapingProcessorQueue.name);
 
+  /** Tempo que a fila fica pausada após o NECO bloquear, antes de retomar sozinha */
+  private static readonly NECO_COOLDOWN_MS = 15 * 60 * 1000; // 15 min
+
+  /** Timer de retomada automática (evita múltiplos agendamentos sobrepostos) */
+  private resumeTimer: NodeJS.Timeout | null = null;
+
   constructor(
     private readonly scrapingService: ScrapingService,
     private readonly childOpportunitiesService: ChildOpportunitiesService,
@@ -101,9 +107,11 @@ export class ScrapingProcessorQueue {
         }
       }
 
-      // Circuit breaker: se NECO retornou erro, parar toda a fila
+      // Circuit breaker: se NECO retornou erro (provável bloqueio de IP), pausa a
+      // fila por um cooldown e retoma automaticamente. NÃO apaga os jobs — assim
+      // o scraping volta sozinho depois, sem precisar de clique manual.
       if (result.status === ScrapingStatus.NECO_ERROR) {
-        await this.drainQueue();
+        await this.pauseWithAutoResume(ScrapingProcessorQueue.NECO_COOLDOWN_MS);
         return result;
       }
 
@@ -141,28 +149,28 @@ export class ScrapingProcessorQueue {
   }
 
   /**
-   * Esvazia a fila de scraping — remove todos os jobs pendentes.
-   * Chamado quando NECO retorna erro (possível bloqueio de IP).
+   * Circuit breaker: pausa a fila por um cooldown e agenda retomada automática.
+   * NÃO remove jobs — quando a fila retoma, os jobs pendentes continuam de onde
+   * pararam. Assim o scraping se recupera sozinho do bloqueio do NECO sem clique.
    */
-  private async drainQueue(): Promise<void> {
-    try {
-      const waiting = await this.scrapingQueue.getWaiting(0, 99999);
-      const delayed = await this.scrapingQueue.getDelayed(0, 99999);
-      const allJobs = [...waiting, ...delayed];
+  private async pauseWithAutoResume(cooldownMs: number): Promise<void> {
+    await this.scrapingQueue.pause();
+    this.logger.warn(
+      `CIRCUIT BREAKER: NECO bloqueou. Fila de scraping PAUSADA por ${Math.round(cooldownMs / 60000)}min. Retomada automática agendada.`,
+    );
 
-      this.logger.warn(
-        `CIRCUIT BREAKER: NECO error detectado. Removendo ${allJobs.length} jobs da fila.`,
-      );
-
-      for (const j of allJobs) {
-        await j.remove();
-      }
-
-      this.logger.warn(
-        `Fila de scraping esvaziada. ${allJobs.length} jobs removidos. Tente novamente mais tarde.`,
-      );
-    } catch (err) {
-      this.logger.error(`Erro ao esvaziar fila: ${err.message}`);
+    if (this.resumeTimer) {
+      clearTimeout(this.resumeTimer);
     }
+    this.resumeTimer = setTimeout(() => {
+      this.scrapingQueue
+        .resume()
+        .then(() =>
+          this.logger.log('CIRCUIT BREAKER: cooldown terminou, fila de scraping RETOMADA automaticamente'),
+        )
+        .catch((err) => this.logger.error(`Falha ao retomar fila: ${err.message}`));
+      this.resumeTimer = null;
+    }, cooldownMs);
+    this.resumeTimer.unref?.();
   }
 }

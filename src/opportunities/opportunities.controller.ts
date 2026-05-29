@@ -81,6 +81,28 @@ export class OpportunitiesController {
   }
 
   /**
+   * Exporta TODAS as oportunidades que batem com os filtros (sem o teto de 100).
+   * GET /api/opportunities/export
+   * IMPORTANTE: deve vir ANTES do :id para evitar conflito de rota
+   */
+  @Get('export')
+  @RequirePermission('opportunities.view')
+  exportAll(@Query() query: FindOpportunitiesQueryDto) {
+    return this.opportunitiesService.exportAll({
+      status: query.status,
+      site: query.site,
+      templateId: query.templateId,
+      search: query.search,
+      closingBefore: query.closingBefore,
+      closingAfter: query.closingAfter,
+      includeDeleted: query.includeDeleted === 'true',
+      includeExpired: query.includeExpired === 'true',
+      quotationPhase: query.quotationPhase,
+      purchaseStatus: query.purchaseStatus,
+    });
+  }
+
+  /**
    * Lista oportunidades filhas de um parent
    * GET /api/opportunities/:id/children
    */

@@ -70,4 +70,27 @@ export class SyncSchedulerService {
       }
     }
   }
+
+  /**
+   * Reconciliação de scraping a cada 10 minutos: re-enfileira automaticamente
+   * oportunidades pendentes/órfãs que ainda não foram scrapeadas (ex: após o
+   * circuit breaker do NECO, restart do Redis ou falha ao enfileirar na criação).
+   * Garante que o scraping volte sozinho — sem precisar clicar para iniciar.
+   * Não faz nada se a fila estiver pausada (cooldown ativo).
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async handleScrapingReconciliation() {
+    try {
+      const { enqueued, skipped } = await this.queuesService.reconcilePendingScraping();
+      if (enqueued > 0) {
+        this.logger.log(`Scraping reconciliation: ${enqueued} job(s) re-enfileirado(s)`);
+      } else if (skipped) {
+        this.logger.debug(`Scraping reconciliation pulada: ${skipped}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Scraping reconciliation failed: ${(error as Error).message}`,
+      );
+    }
+  }
 }

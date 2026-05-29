@@ -362,6 +362,67 @@ export class QueuesService {
   }
 
   /**
+   * Reconciliação automática (chamada por cron): re-enfileira oportunidades que
+   * DEVERIAM ter sido scrapeadas mas ficaram "órfãs" — status pending/null sem
+   * job correspondente na fila (ex: após circuit breaker, restart do Redis, ou
+   * falha ao enfileirar na criação). Garante que emails novos sejam scrapeados
+   * automaticamente sem precisar de clique manual.
+   *
+   * Não faz nada se a fila estiver pausada (cooldown do circuit breaker ativo).
+   */
+  async reconcilePendingScraping(): Promise<{ enqueued: number; skipped: string }> {
+    const isPaused = await this.scrapingQueue.isPaused();
+    if (isPaused) {
+      return { enqueued: 0, skipped: 'queue_paused' };
+    }
+
+    // IDs já representados na fila (não duplicar)
+    const [waiting, active, delayed] = await Promise.all([
+      this.scrapingQueue.getWaiting(0, 100000),
+      this.scrapingQueue.getActive(0, 1000),
+      this.scrapingQueue.getDelayed(0, 100000),
+    ]);
+    const queuedIds = new Set(
+      [...waiting, ...active, ...delayed].map((j) => j.data?.opportunityId),
+    );
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const candidates = await this.prisma.opportunity.findMany({
+      where: {
+        sourceUrl: { not: null },
+        deletedAt: null,
+        parentOpportunityId: null,
+        status: { not: 'cancelada' },
+        OR: [{ scrapingStatus: null }, { scrapingStatus: ScrapingStatus.PENDING }],
+        AND: [{ OR: [{ closingDate: { gte: today } }, { closingDate: null }] }],
+      },
+      select: { id: true, sourceUrl: true, templateId: true, userId: true },
+    });
+
+    let enqueued = 0;
+    for (const opp of candidates) {
+      if (!opp.sourceUrl || !opp.templateId) continue;
+      if (queuedIds.has(opp.id)) continue;
+
+      await this.addScrapingJob({
+        opportunityId: opp.id,
+        userId: opp.userId,
+        templateId: opp.templateId,
+        sourceUrl: opp.sourceUrl,
+      });
+      enqueued++;
+    }
+
+    if (enqueued > 0) {
+      this.logger.log(`Reconciliation: re-enqueued ${enqueued} orphan scraping job(s)`);
+    }
+
+    return { enqueued, skipped: '' };
+  }
+
+  /**
    * Retry apenas oportunidades com falha de scraping
    */
   async retryFailedScraping(): Promise<{ enqueued: number; byStatus: Record<string, number>; skippedExpired: number }> {

@@ -35,9 +35,90 @@ import {
   createHistoryEntry,
 } from '../common/helpers/status-history.helper';
 
+export interface ListFilters {
+  status?: string;
+  site?: string;
+  templateId?: string;
+  search?: string;
+  closingBefore?: string;
+  closingAfter?: string;
+  includeDeleted?: boolean;
+  includeExpired?: boolean;
+  quotationPhase?: string;
+  purchaseStatus?: string;
+}
+
 @Injectable()
 export class OpportunitiesService {
   private readonly logger = new Logger(OpportunitiesService.name);
+
+  /** Teto de segurança de linhas no export (evita estourar memória) */
+  private static readonly EXPORT_MAX_ROWS = 50000;
+
+  /**
+   * Status que permanecem visíveis na listagem MESMO após a data de fechamento
+   * passar. Uma vez que a proposta entra em cotação / vai ao BID, o fluxo de
+   * trabalho continua após o closing (resultado, compra, entrega) — não deve sumir.
+   * Só os status "iniciais" (nao_analisada, analisada, descartada) somem ao vencer.
+   */
+  private static readonly VISIBLE_AFTER_CLOSING = [
+    OpportunityStatus.EM_COTACAO,
+    OpportunityStatus.LANCADA_BID,
+    OpportunityStatus.VENCEDORA_BID,
+    OpportunityStatus.NAO_VENCEDORA,
+  ];
+
+  /**
+   * Colunas trazidas na listagem. NÃO inclui rawHtml (LongText, página NECO
+   * inteira), extractedData nem statusHistory — blobs pesados que tornavam o
+   * findMany lento (vários MB por página). scrapedData é mantido pois a tabela
+   * usa vendorCode/leadTimeDays na aba padrão.
+   */
+  private static readonly LIST_SELECT = {
+    id: true,
+    solicitationNumber: true,
+    site: true,
+    sourceUrl: true,
+    partNumber: true,
+    manufacturer: true,
+    description: true,
+    nsn: true,
+    condition: true,
+    unit: true,
+    quantity: true,
+    closingDate: true,
+    deliveryDate: true,
+    daysUntilClosing: true,
+    urgencyLevel: true,
+    maxPrice: true,
+    purchasePrice: true,
+    profitMargin: true,
+    offeredPrice: true,
+    profitAmount: true,
+    wonPrice: true,
+    bidPrice: true,
+    status: true,
+    quotationPhase: true,
+    purchaseStatus: true,
+    supplierName: true,
+    purchaseDate: true,
+    expectedDelivery: true,
+    actualDelivery: true,
+    deliveryOnTime: true,
+    bidSubmittedAt: true,
+    bidResultAt: true,
+    cancelledAt: true,
+    cancellationSource: true,
+    isViewed: true,
+    notes: true,
+    scrapedData: true,
+    scrapingStatus: true,
+    parentOpportunityId: true,
+    childrenCount: true,
+    templateId: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies Prisma.OpportunitySelect;
 
   constructor(
     private prisma: PrismaService,
@@ -129,25 +210,11 @@ export class OpportunitiesService {
   }
 
   /**
-   * Lista oportunidades com paginação e filtros
+   * Monta o filtro `where` compartilhado entre a listagem e o export, garantindo
+   * que ambos apliquem exatamente as mesmas regras (soft delete, expiração,
+   * visibilidade pós-BID, busca, etc).
    */
-  async findAll(
-    page: number = 1,
-    limit: number = 50,
-    filters?: {
-      status?: string;
-      site?: string;
-      templateId?: string;
-      search?: string;
-      closingBefore?: string;
-      closingAfter?: string;
-      includeDeleted?: boolean;
-      includeExpired?: boolean;
-      quotationPhase?: string;
-      purchaseStatus?: string;
-    },
-  ) {
-    const skip = (page - 1) * limit;
+  private buildListWhere(filters?: ListFilters): Prisma.OpportunityWhereInput {
     const where: Prisma.OpportunityWhereInput = {
       parentOpportunityId: null, // Filhas não aparecem na listagem principal
     };
@@ -157,10 +224,12 @@ export class OpportunitiesService {
     }
 
     if (filters?.status === 'expirada') {
-      // Aba "Expiradas": closingDate no passado, qualquer status de workflow
+      // Aba "Expiradas": closingDate no passado. Exclui status pós-cotação/BID,
+      // que continuam visíveis nas suas próprias abas mesmo após o fechamento.
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       where.closingDate = { lt: today };
+      where.status = { notIn: OpportunitiesService.VISIBLE_AFTER_CLOSING };
     } else if (filters?.status) {
       where.status = filters.status;
     }
@@ -212,6 +281,8 @@ export class OpportunitiesService {
         OR: [
           { closingDate: null },
           { closingDate: { gte: today } },
+          // Propostas já em cotação/BID/vencedoras continuam visíveis após o fechamento
+          { status: { in: OpportunitiesService.VISIBLE_AFTER_CLOSING } },
         ],
       });
     }
@@ -220,12 +291,23 @@ export class OpportunitiesService {
       where.AND = andConditions;
     }
 
+    return where;
+  }
+
+  /**
+   * Lista oportunidades com paginação e filtros
+   */
+  async findAll(page: number = 1, limit: number = 50, filters?: ListFilters) {
+    const skip = (page - 1) * limit;
+    const where = this.buildListWhere(filters);
+
     const [total, opportunities] = await Promise.all([
       this.prisma.opportunity.count({ where }),
       this.prisma.opportunity.findMany({
         where,
         skip,
         take: limit,
+        select: OpportunitiesService.LIST_SELECT,
         orderBy: [
           { closingDate: { sort: 'asc', nulls: 'last' } },
           { createdAt: 'desc' },
@@ -240,6 +322,38 @@ export class OpportunitiesService {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Retorna TODAS as oportunidades que batem com os filtros (sem paginação de 100),
+   * para exportação. Aplica as mesmas regras da listagem via buildListWhere.
+   * Limitado a EXPORT_MAX_ROWS por segurança.
+   */
+  async exportAll(filters?: ListFilters) {
+    const where = this.buildListWhere(filters);
+
+    const [total, data] = await Promise.all([
+      this.prisma.opportunity.count({ where }),
+      this.prisma.opportunity.findMany({
+        where,
+        take: OpportunitiesService.EXPORT_MAX_ROWS,
+        select: OpportunitiesService.LIST_SELECT,
+        orderBy: [
+          { closingDate: { sort: 'asc', nulls: 'last' } },
+          { createdAt: 'desc' },
+        ],
+      }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        returned: data.length,
+        capped: total > OpportunitiesService.EXPORT_MAX_ROWS,
+        maxRows: OpportunitiesService.EXPORT_MAX_ROWS,
       },
     };
   }
@@ -652,6 +766,8 @@ export class OpportunitiesService {
           OR: [
             { closingDate: null },
             { closingDate: { gte: today } },
+            // Mesma regra da listagem: pós-cotação/BID conta mesmo vencido
+            { status: { in: OpportunitiesService.VISIBLE_AFTER_CLOSING } },
           ],
         },
         _count: { status: true },
@@ -661,6 +777,8 @@ export class OpportunitiesService {
           deletedAt: null,
           parentOpportunityId: null,
           closingDate: { lt: today },
+          // Não conta como "expirada" o que segue visível na sua própria aba
+          status: { notIn: OpportunitiesService.VISIBLE_AFTER_CLOSING },
         },
       }),
     ]);
